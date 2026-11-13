@@ -11,7 +11,7 @@ import java.io.Serializable;
 public class GameStatusDTO implements Serializable {
 
     /**
-     * 游戏状态：playing / completed / not_played / on_hold / dropped
+     * 游戏状态：在玩 / 已完成 / 未玩 / 搁置 / 弃坑
      */
     private String status;
 }

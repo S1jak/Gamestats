@@ -57,7 +57,7 @@
 
     <div v-else :class="['games-container', viewMode]">
       <GameCard
-        v-for="game in filteredGames"
+        v-for="game in pagedGames"
         :key="game.id"
         :game="game"
         :view-mode="viewMode"
@@ -84,6 +84,7 @@ import { useRoute } from 'vue-router'
 import { useGameStore } from '@/store/game'
 import { ElMessage } from 'element-plus'
 import GameCard from '@/components/GameCard.vue'
+import { GAME_STATUS_OPTIONS } from '@/utils/gameStatus'
 
 const route = useRoute()
 const gameStore = useGameStore()
@@ -95,14 +96,8 @@ const viewMode = ref('grid')
 const currentPage = ref(1)
 const pageSize = 24
 
-// 状态选项：中文，与数据库 user_games.status 默认值保持一致
-const statusOptions = [
-  { label: '在玩', value: '在玩' },
-  { label: '已完成', value: '已完成' },
-  { label: '未玩', value: '未玩' },
-  { label: '搁置', value: '搁置' },
-  { label: '弃坑', value: '弃坑' }
-]
+// 状态选项：统一引用 gameStatus 常量，与后端中文五值保持一致
+const statusOptions = GAME_STATUS_OPTIONS
 
 // 类型选项：从已加载的游戏数据中动态提取唯一 genre，避免与数据库脱节
 const genres = computed(() => {
@@ -132,6 +127,25 @@ const filteredGames = computed(() => {
   }
 
   return result
+})
+
+// 当前页切片：网格/列表视图共用同一页码，pageSize 只在此处定义
+const pagedGames = computed(() => {
+  const start = (currentPage.value - 1) * pageSize
+  return filteredGames.value.slice(start, start + pageSize)
+})
+
+// 筛选条件任一变化时回到第 1 页
+watch([searchQuery, genreFilter, statusFilter], () => {
+  currentPage.value = 1
+})
+
+// 过滤结果减少导致当前页越界时，钳制到最后一页（结果为空则停在 1）
+watch(filteredGames, (list) => {
+  const maxPage = Math.max(1, Math.ceil(list.length / pageSize))
+  if (currentPage.value > maxPage) {
+    currentPage.value = maxPage
+  }
 })
 
 function clearFilters() {

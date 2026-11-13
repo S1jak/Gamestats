@@ -70,8 +70,34 @@ public class DashboardServiceImpl implements DashboardService {
         if (userId == null) {
             throw new UserNotLoginException("用户未登录");
         }
+        // 总时长为 0 时直接返回空列表，避免除零与 NaN（BUG-13）
+        Integer totalMinutes = dashboardMapper.sumUserPlayMinutes(userId);
+        if (totalMinutes == null || totalMinutes <= 0) {
+            return new ArrayList<>();
+        }
         List<GenreDistributionVO> list = dashboardMapper.listGenreDistribution(userId);
-        return list != null ? list : new ArrayList<>();
+        if (list == null || list.isEmpty()) {
+            return new ArrayList<>();
+        }
+        alignHours(list, totalMinutes);
+        return list;
+    }
+
+    /**
+     * 类型小时数尾差校正：把逐项 ROUND(...,1) 的舍入误差归入占比最小的类型，
+     * 使 hours 合计等于游戏库总时长（分钟折算小时，一位小数）。
+     */
+    private void alignHours(List<GenreDistributionVO> list, int totalMinutes) {
+        double target = Math.round(totalMinutes / 60.0 * 10) / 10.0;
+        double othersHours = 0.0;
+        for (int i = 0; i < list.size() - 1; i++) {
+            Double hours = list.get(i).getHours();
+            othersHours += hours != null ? hours : 0.0;
+        }
+        double tail = Math.round((target - othersHours) * 10) / 10.0;
+        if (tail >= 0) {
+            list.get(list.size() - 1).setHours(tail);
+        }
     }
 
     @Override

@@ -301,9 +301,12 @@ function renderTrendChart(records) {
 
 function renderGenreChart(list) {
   if (!genreChart) return
+  // percent / hours 直接取后端口径，前端不再按 value 二次归一化
   const data = (list || []).map((g, i) => ({
     value: g.percent,
     name: g.name,
+    percent: g.percent,
+    hours: g.hours,
     itemStyle: { color: GENRE_COLORS[i % GENRE_COLORS.length] }
   }))
 
@@ -313,7 +316,11 @@ function renderGenreChart(list) {
       backgroundColor: 'rgba(26, 26, 46, 0.9)',
       borderColor: '#27273f',
       textStyle: { color: '#fff' },
-      formatter: '{b}: {d}%'
+      formatter: (params) => {
+        const percent = Number(params.data?.percent ?? 0)
+        const hours = Number(params.data?.hours ?? 0)
+        return `${params.name}: ${percent.toFixed(2)}% · ${hours.toFixed(1)}小时`
+      }
     },
     legend: {
       orient: 'vertical',

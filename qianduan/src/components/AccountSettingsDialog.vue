@@ -42,7 +42,7 @@
               :show-file-list="false"
               :auto-upload="false"
               :on-change="handleAvatarChange"
-              accept="image/*"
+              accept=".jpg,.jpeg,.png,.webp,.gif"
             >
               <el-avatar :size="86" :src="form.avatar">
                 {{ form.username?.charAt(0) }}
@@ -50,7 +50,7 @@
               <div class="upload-hint">点击更换</div>
             </el-upload>
             <div class="avatar-tip">
-              支持 JPG/PNG，文件大小不超过 2MB。<br />
+              仅支持 jpg/jpeg/png/webp/gif，头像大小不能超过 2MB。<br />
               建议使用 200×200 像素以上的正方形图片。
             </div>
           </div>
@@ -246,16 +246,32 @@ watch(() => props.modelValue, (val) => {
   }
 })
 
+// 头像本地校验：与后端限制保持一致（JPG/JPEG/PNG/WEBP/GIF、≤2MB、空文件拒绝）
+const AVATAR_MAX_SIZE = 2 * 1024 * 1024
+const AVATAR_MIME_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif']
+const AVATAR_EXTENSIONS = ['jpg', 'jpeg', 'png', 'webp', 'gif']
+
+function validateAvatarFile(raw) {
+  if (!raw || !raw.size) {
+    ElMessage.error('上传文件不能为空')
+    return false
+  }
+  if (raw.size > AVATAR_MAX_SIZE) {
+    ElMessage.error('头像大小不能超过 2MB')
+    return false
+  }
+  const ext = (raw.name || '').split('.').pop()?.toLowerCase() || ''
+  const mimeOk = !raw.type || AVATAR_MIME_TYPES.includes(raw.type)
+  if (!AVATAR_EXTENSIONS.includes(ext) || !mimeOk) {
+    ElMessage.error('不支持的文件格式，仅允许 jpg/jpeg/png/webp/gif')
+    return false
+  }
+  return true
+}
+
 function handleAvatarChange(file) {
   const raw = file.raw
-  if (!raw || !raw.type.startsWith('image/')) {
-    ElMessage.error('请选择图片文件')
-    return
-  }
-  if (raw.size > 2 * 1024 * 1024) {
-    ElMessage.error('文件大小不能超过 2MB')
-    return
-  }
+  if (!validateAvatarFile(raw)) return
   avatarFile.value = raw
   const reader = new FileReader()
   reader.onload = (e) => { form.avatar = e.target.result }

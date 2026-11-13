@@ -141,6 +141,10 @@ const menuItems = [
 ]
 
 const pageTitle = computed(() => {
+  // 路由 meta.title 优先（子路由显式声明，父路由不设以免覆盖）
+  if (route.meta?.title) return route.meta.title
+  // 游戏详情为动态路由，不在菜单项中
+  if (route.path.startsWith('/game/')) return '游戏详情'
   const item = menuItems.find(m => m.path === route.path)
   return item?.title || '首页'
 })

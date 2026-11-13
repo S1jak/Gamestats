@@ -87,17 +87,41 @@
         ORDER BY date
     </select>
 
-    <!-- 游戏类型分布（按用户游戏库时长占比 + 小时数） -->
+    <!-- 游戏库累计游玩总分钟数（类型分布尾差校正的分母） -->
+    <select id="sumUserPlayMinutes" resultType="java.lang.Integer">
+        SELECT COALESCE(SUM(play_time), 0)
+        FROM user_games
+        WHERE user_id = #{userId}
+    </select>
+
+    <!--
+        游戏类型分布（BUG-13 口径修正）：
+          1) 先按游戏聚合 play_time，多类型游戏只计一次时长，不再按类型关联重复入账；
+          2) 按主类型归类（主类型 = 该游戏类型 id 最小者，与详情页 genre 口径一致）；
+          3) 无类型关联的游戏归入"其他"，保证总时长不丢失；
+          4) percent 以游戏库总时长为分母，保留两位小数（合计 100%，尾差由 Service 校正 hours）。
+    -->
     <select id="listGenreDistribution" resultType="com.lxw.pojo.vo.GenreDistributionVO">
-        SELECT gg.name AS name,
-               ROUND(SUM(ug.play_time) * 100 /
-                   (SELECT SUM(play_time) FROM user_games WHERE user_id = #{userId}), 2) AS percent,
-               ROUND(SUM(ug.play_time) / 60.0, 1) AS hours
-        FROM user_games ug
-        JOIN game_genre_relations gr ON ug.game_id = gr.game_id
-        JOIN game_genres gg ON gr.genre_id = gg.id
-        WHERE ug.user_id = #{userId}
-        GROUP BY gg.name
+        SELECT
+            COALESCE(mg.name, '其他') AS name,
+            ROUND(SUM(pg.play_time) * 100.0 /
+                  (SELECT SUM(play_time) FROM user_games WHERE user_id = #{userId}), 2) AS percent,
+            ROUND(SUM(pg.play_time) / 60.0, 1) AS hours
+        FROM (
+            SELECT game_id, SUM(play_time) AS play_time
+            FROM user_games
+            WHERE user_id = #{userId}
+            GROUP BY game_id
+            HAVING SUM(play_time) &gt; 0
+        ) pg
+        LEFT JOIN (
+            SELECT gr.game_id, MIN(gg.id) AS genre_id
+            FROM game_genre_relations gr
+            JOIN game_genres gg ON gg.id = gr.genre_id
+            GROUP BY gr.game_id
+        ) mgr ON mgr.game_id = pg.game_id
+        LEFT JOIN game_genres mg ON mg.id = mgr.genre_id
+        GROUP BY mg.name
         ORDER BY percent DESC
     </select>
 

@@ -168,7 +168,7 @@
             :show-file-list="false"
             :auto-upload="false"
             :on-change="handleAvatarChange"
-            accept="image/*"
+            accept=".jpg,.jpeg,.png,.webp,.gif"
           >
             <el-avatar :size="80" :src="editForm.avatar">
               {{ editForm.username?.charAt(0) }}
@@ -303,14 +303,33 @@ async function removeTag(tag) {
   }
 }
 
+// 头像本地校验：与后端限制保持一致（JPG/JPEG/PNG/WEBP/GIF、≤2MB、空文件拒绝）
+const AVATAR_MAX_SIZE = 2 * 1024 * 1024
+const AVATAR_MIME_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif']
+const AVATAR_EXTENSIONS = ['jpg', 'jpeg', 'png', 'webp', 'gif']
+
+function validateAvatarFile(raw) {
+  if (!raw || !raw.size) {
+    ElMessage.error('上传文件不能为空')
+    return false
+  }
+  if (raw.size > AVATAR_MAX_SIZE) {
+    ElMessage.error('头像大小不能超过 2MB')
+    return false
+  }
+  const ext = (raw.name || '').split('.').pop()?.toLowerCase() || ''
+  const mimeOk = !raw.type || AVATAR_MIME_TYPES.includes(raw.type)
+  if (!AVATAR_EXTENSIONS.includes(ext) || !mimeOk) {
+    ElMessage.error('不支持的文件格式，仅允许 jpg/jpeg/png/webp/gif')
+    return false
+  }
+  return true
+}
+
 // 选择头像后本地即时预览（Base64），保存时才上传到服务器
 function handleAvatarChange(file) {
   const raw = file.raw
-  if (!raw) return
-  if (!raw.type.startsWith('image/')) {
-    ElMessage.error('请选择图片文件')
-    return
-  }
+  if (!validateAvatarFile(raw)) return
   avatarFile.value = raw
   const reader = new FileReader()
   reader.onload = (e) => {

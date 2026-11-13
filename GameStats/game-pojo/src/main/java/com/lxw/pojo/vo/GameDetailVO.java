@@ -38,13 +38,17 @@ public class GameDetailVO implements Serializable {
     private Integer totalAchievements;
 
     /**
-     * 游戏状态：playing / completed / not_played / on_hold / dropped
+     * 游戏状态：在玩 / 已完成 / 未玩 / 搁置 / 弃坑
      */
     private String status;
 
     private String note;
 
+    /** 用户自定义标签（来自 user_game_tags，空为 []，不为 null） */
     private List<String> tags;
+
+    /** 游戏全部类型名（按 game_genres.id 升序，空为 []） */
+    private List<String> genres;
 
     /** 平台拥有情况 */
     private List<PlatformVO> platforms;

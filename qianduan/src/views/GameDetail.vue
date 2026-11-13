@@ -15,7 +15,7 @@
         <div class="game-info">
           <h1>{{ game.name }}</h1>
           <div class="game-meta">
-            <span class="genre">{{ game.genre }}</span>
+            <span v-for="genreItem in displayGenres" :key="genreItem" class="genre">{{ genreItem }}</span>
             <span class="developer">{{ game.developer }}</span>
             <span class="release-date">{{ game.releaseDate }}</span>
           </div>
@@ -62,7 +62,9 @@
         
         <div class="section">
           <h3>游玩时长趋势</h3>
-          <div ref="playTimeChartRef" class="chart-container"></div>
+          <div v-if="trendLoading" class="chart-empty">加载中...</div>
+          <div v-else-if="!hasTrendData" class="chart-empty">近 30 天暂无游玩记录</div>
+          <div v-else ref="playTimeChartRef" class="chart-container"></div>
         </div>
         
         <div class="section">
@@ -106,11 +108,12 @@
         <div class="status-card">
           <h4>游戏状态</h4>
           <el-select v-model="game.status" @change="updateStatus">
-            <el-option label="在玩" value="在玩" />
-            <el-option label="已完成" value="已完成" />
-            <el-option label="未玩" value="未玩" />
-            <el-option label="搁置" value="搁置" />
-            <el-option label="弃坑" value="弃坑" />
+            <el-option
+              v-for="opt in GAME_STATUS_OPTIONS"
+              :key="opt.value"
+              :label="opt.label"
+              :value="opt.value"
+            />
           </el-select>
         </div>
         
@@ -172,23 +175,30 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { useRoute } from 'vue-router'
 import { useGameStore } from '@/store/game'
 import * as echarts from 'echarts'
+import dayjs from 'dayjs'
 import { ElMessage } from 'element-plus'
+import { GAME_STATUS_OPTIONS } from '@/utils/gameStatus'
 
 const route = useRoute()
 const gameStore = useGameStore()
 const playTimeChartRef = ref(null)
 const newTag = ref('')
 
-// 游戏详情：初始空结构避免模板渲染报错，onMounted 后由 API 填充
+// 游戏详情：初始空结构避免模板渲染报错，加载后由 API 填充
 const game = ref({
   tags: [],
+  genres: [],
   platforms: [],
   achievementList: []
 })
+
+// 标签本地校验规则，与后端保持一致（trim、单标签 1-20 字、最多 10 个）
+const MAX_TAG_COUNT = 10
+const MAX_TAG_LENGTH = 20
 
 // 成就列表来自后端 GameDetailVO.achievementList
 const achievements = computed(() => game.value.achievementList || [])
@@ -196,7 +206,23 @@ const achievements = computed(() => game.value.achievementList || [])
 // 评分按 10 分制存储，el-rate 满星为 5，除以 2 用于星星显示
 const ratingStars = computed(() => (Number(game.value.rating) || 0) / 2)
 
-// 按路由参数 id 加载对应游戏详情
+// 类型区域只渲染 genres（全部类型），旧数据缺失时退回主类型 genre
+const displayGenres = computed(() => {
+  const list = game.value.genres
+  if (Array.isArray(list) && list.length) return list
+  return game.value.genre ? [game.value.genre] : []
+})
+
+// 趋势区间：今天往前 29 天至今天，与后端 days=30 窗口一致
+const TREND_DAYS = 30
+const trendLabels = ref([])
+const trendMinutes = ref([])
+const trendLoading = ref(true)
+const hasTrendData = computed(() => trendMinutes.value.some(v => v > 0))
+
+let playTimeChart = null
+
+// 按路由参数 id 加载游戏详情与游玩趋势
 async function loadGame() {
   const id = route.params.id
   if (!id) return
@@ -210,32 +236,54 @@ async function loadGame() {
   }
 }
 
+// 拉取真实按日趋势并补零，禁止任何客户端随机数据
+async function loadPlayTrend() {
+  const id = route.params.id
+  if (!id) return
+  trendLoading.value = true
+  try {
+    const records = await gameStore.fetchPlayTrend(id, TREND_DAYS)
+    const map = new Map()
+    ;(records || []).forEach(r => map.set(r.date, Number(r.minutes) || 0))
+
+    const labels = []
+    const minutes = []
+    for (let i = TREND_DAYS - 1; i >= 0; i--) {
+      const d = dayjs().subtract(i, 'day')
+      labels.push(d.format('M/D'))
+      minutes.push(map.get(d.format('YYYY-MM-DD')) || 0)
+    }
+    trendLabels.value = labels
+    trendMinutes.value = minutes
+  } catch (e) {
+    trendLabels.value = []
+    trendMinutes.value = []
+  } finally {
+    trendLoading.value = false
+  }
+}
+
 function formatPlayTime(minutes) {
   if (!minutes) return '0小时'
   const hours = Math.floor(minutes / 60)
   return `${hours}小时`
 }
 
-function initPlayTimeChart() {
-  if (!playTimeChartRef.value) return
-
-  const chart = echarts.init(playTimeChartRef.value)
-  const days = []
-  const data = []
-
-  for (let i = 29; i >= 0; i--) {
-    const date = new Date()
-    date.setDate(date.getDate() - i)
-    days.push(`${date.getMonth() + 1}/${date.getDate()}`)
-    data.push(Math.floor(Math.random() * 120 + 30))
+function renderPlayTimeChart() {
+  if (!playTimeChartRef.value || !hasTrendData.value) {
+    disposePlayTimeChart()
+    return
   }
+  if (playTimeChart) playTimeChart.dispose()
+  playTimeChart = echarts.init(playTimeChartRef.value)
 
   const option = {
     tooltip: {
       trigger: 'axis',
       backgroundColor: 'rgba(26, 26, 46, 0.9)',
       borderColor: '#27273f',
-      textStyle: { color: '#fff' }
+      textStyle: { color: '#fff' },
+      formatter: '{b}: {c} 分钟'
     },
     grid: {
       left: '3%',
@@ -246,7 +294,7 @@ function initPlayTimeChart() {
     },
     xAxis: {
       type: 'category',
-      data: days,
+      data: trendLabels.value,
       axisLine: { lineStyle: { color: '#27273f' } },
       axisLabel: { color: '#71717a', fontSize: 10 },
       axisTick: { show: false }
@@ -258,7 +306,7 @@ function initPlayTimeChart() {
       splitLine: { lineStyle: { color: '#27273f' } }
     },
     series: [{
-      data,
+      data: trendMinutes.value,
       type: 'bar',
       barWidth: 12,
       itemStyle: {
@@ -268,7 +316,14 @@ function initPlayTimeChart() {
     }]
   }
 
-  chart.setOption(option)
+  playTimeChart.setOption(option)
+}
+
+function disposePlayTimeChart() {
+  if (playTimeChart) {
+    playTimeChart.dispose()
+    playTimeChart = null
+  }
 }
 
 async function saveNote() {
@@ -289,26 +344,68 @@ async function updateStatus() {
   }
 }
 
-function addTag() {
-  const tag = newTag.value.trim()
-  const tags = game.value.tags || []
-  if (tag && !tags.includes(tag)) {
-    tags.push(tag)
-    newTag.value = ''
+// 标签持久化：先乐观更新本地，再调用接口；失败回滚到请求前集合
+async function persistTags(nextTags) {
+  const previous = [...(game.value.tags || [])]
+  game.value = { ...game.value, tags: nextTags }
+  try {
+    const response = await gameStore.updateGameTags(game.value.id, nextTags)
+    if (response && Array.isArray(response.tags)) {
+      game.value = { ...game.value, tags: response.tags }
+    }
+  } catch (e) {
+    game.value = { ...game.value, tags: previous }
+    ElMessage.error('标签保存失败，已恢复原标签')
   }
 }
 
-function removeTag(tag) {
+async function addTag() {
+  const tag = newTag.value.trim()
+  if (!tag) return
+
   const tags = game.value.tags || []
-  const index = tags.indexOf(tag)
-  if (index > -1) {
-    tags.splice(index, 1)
+  if (tags.includes(tag)) {
+    newTag.value = ''
+    return
   }
+  if ([...tag].length > MAX_TAG_LENGTH) {
+    ElMessage.warning(`单个标签长度需为1-${MAX_TAG_LENGTH}个字符`)
+    return
+  }
+  if (tags.length >= MAX_TAG_COUNT) {
+    ElMessage.warning(`标签不能超过${MAX_TAG_COUNT}个`)
+    return
+  }
+
+  newTag.value = ''
+  await persistTags([...tags, tag])
 }
+
+async function removeTag(tag) {
+  const tags = game.value.tags || []
+  if (!tags.includes(tag)) return
+  await persistTags(tags.filter(t => t !== tag))
+}
+
+// 切换游戏（同一路由组件复用）时重新拉取详情与趋势，避免残留上一款数据
+watch(() => route.params.id, (id, oldId) => {
+  if (!id || id === oldId) return
+  newTag.value = ''
+  loadGame().then(loadPlayTrend)
+})
 
 onMounted(async () => {
   await loadGame()
-  initPlayTimeChart()
+  await loadPlayTrend()
+})
+
+watch([hasTrendData, trendLoading], async () => {
+  await nextTick()
+  renderPlayTimeChart()
+})
+
+onUnmounted(() => {
+  disposePlayTimeChart()
 })
 </script>
 
@@ -489,6 +586,15 @@ onMounted(async () => {
 
 .chart-container {
   height: 200px;
+}
+
+.chart-empty {
+  height: 200px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  color: $text-muted;
 }
 
 .notes-editor {

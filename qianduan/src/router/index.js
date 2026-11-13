@@ -16,37 +16,44 @@ const routes = [
       {
         path: '',
         name: 'Home',
-        component: () => import('@/views/Home.vue')
+        component: () => import('@/views/Home.vue'),
+        meta: { title: '首页' }
       },
       {
         path: 'dashboard',
         name: 'Dashboard',
-        component: () => import('@/views/Dashboard.vue')
+        component: () => import('@/views/Dashboard.vue'),
+        meta: { title: '数据中心' }
       },
       {
         path: 'library',
         name: 'Library',
-        component: () => import('@/views/Library.vue')
+        component: () => import('@/views/Library.vue'),
+        meta: { title: '游戏库' }
       },
       {
         path: 'game/:id',
         name: 'GameDetail',
-        component: () => import('@/views/GameDetail.vue')
+        component: () => import('@/views/GameDetail.vue'),
+        meta: { title: '游戏详情' }
       },
       {
         path: 'profile',
         name: 'Profile',
-        component: () => import('@/views/Profile.vue')
+        component: () => import('@/views/Profile.vue'),
+        meta: { title: '个人中心' }
       },
       {
         path: 'social',
         name: 'Social',
-        component: () => import('@/views/Social.vue')
+        component: () => import('@/views/Social.vue'),
+        meta: { title: '社交' }
       },
       {
         path: 'year-report',
         name: 'YearReport',
-        component: () => import('@/views/YearReport.vue')
+        component: () => import('@/views/YearReport.vue'),
+        meta: { title: '年度报告' }
       }
     ]
   }

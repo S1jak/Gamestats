@@ -35,6 +35,9 @@ public class UserGame implements Serializable {
     /** 游戏笔记 */
     private String notes;
 
+    /** 完成时间（状态进入"已完成"时写入，离开"已完成"时清空） */
+    private LocalDateTime completedAt;
+
     /** 创建时间 */
     private LocalDateTime createdAt;
 

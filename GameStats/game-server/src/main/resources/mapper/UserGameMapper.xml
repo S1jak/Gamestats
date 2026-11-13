@@ -84,20 +84,51 @@
         WHERE user_id = #{userId} AND game_id = #{gameId}
     </update>
 
-    <!-- 更新游戏状态 -->
+    <!-- 更新游戏状态：进入"已完成"写入完成时间（已有值不覆盖），离开"已完成"清空完成时间 -->
     <update id="updateStatus">
         UPDATE user_games
-        SET status = #{status}
+        SET status = #{status},
+            completed_at = CASE WHEN #{status} = '已完成' THEN COALESCE(completed_at, NOW()) ELSE NULL END
         WHERE user_id = #{userId} AND game_id = #{gameId}
     </update>
 
-    <!-- 查询游戏的类型名称列表（用于 GameVO.tags） -->
+    <!-- 查询游戏的类型名称列表（用于 GameVO.genres / GameDetailVO.genres，按类型 id 升序） -->
     <select id="listGenreNamesByGameId" resultType="java.lang.String">
         SELECT gg.name
         FROM game_genres gg
         JOIN game_genre_relations gr ON gg.id = gr.genre_id
         WHERE gr.game_id = #{gameId}
         ORDER BY gg.id
+    </select>
+
+    <!-- 一次性查询当前用户全部游戏的类型行（game_id + name），供列表按 gameId 分组填充 genres，避免 N+1 -->
+    <select id="listGenreRowsByUserId" resultType="com.lxw.pojo.vo.GameGenreRow">
+        SELECT ug.game_id AS game_id,
+               gg.name    AS name
+        FROM user_games ug
+        JOIN game_genre_relations gr ON ug.game_id = gr.game_id
+        JOIN game_genres gg ON gr.genre_id = gg.id
+        WHERE ug.user_id = #{userId}
+        ORDER BY ug.game_id, gg.id
+    </select>
+
+    <!--
+        当前用户某款游戏最近 N 个自然日（含今天）的按日游玩时长。
+        区间 = [今天-(days-1), 今天]：offsetDays 由 Service 传 days-1，
+        下界 DATE_SUB(CURDATE(), INTERVAL offsetDays DAY)，上界为明天 0 点（开区间）；
+        禁止用 INTERVAL days DAY（会多算 1 天，与前端补零窗口错位）。
+        无记录返回空结果集，不补零（补零由前端按同窗口完成）。
+    -->
+    <select id="listPlayTrendByUserIdAndGameId" resultType="com.lxw.pojo.vo.DailyPlayVO">
+        SELECT DATE_FORMAT(start_time, '%Y-%m-%d') AS date,
+               SUM(duration) AS minutes
+        FROM play_records
+        WHERE user_id = #{userId}
+          AND game_id = #{gameId}
+          AND start_time &gt;= DATE_SUB(CURDATE(), INTERVAL #{offsetDays} DAY)
+          AND start_time &lt; DATE_ADD(CURDATE(), INTERVAL 1 DAY)
+        GROUP BY DATE_FORMAT(start_time, '%Y-%m-%d')
+        ORDER BY date
     </select>
 
 </mapper>

@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.lxw.gamestats.mapper.UserGameTagMapper">
+
+    <resultMap id="UserGameTagMap" type="com.lxw.pojo.entity.UserGameTag">
+        <id property="id" column="id"/>
+        <result property="userId" column="user_id"/>
+        <result property="gameId" column="game_id"/>
+        <result property="tag" column="tag"/>
+        <result property="createdAt" column="created_at"/>
+    </resultMap>
+
+    <!-- 查询当前用户某款游戏的全部标签（id 升序 = 插入顺序，保证展示顺序稳定） -->
+    <select id="listByUserIdAndGameId" resultMap="UserGameTagMap">
+        SELECT id, user_id, game_id, tag, created_at
+        FROM user_game_tags
+        WHERE user_id = #{userId}
+          AND game_id = #{gameId}
+        ORDER BY id
+    </select>
+
+    <!-- 一次性查询当前用户全部标签，供列表接口按 game_id 分组填充（避免 N+1） -->
+    <select id="listByUserId" resultMap="UserGameTagMap">
+        SELECT id, user_id, game_id, tag, created_at
+        FROM user_game_tags
+        WHERE user_id = #{userId}
+        ORDER BY game_id, id
+    </select>
+
+    <!-- 删除当前用户某款游戏的全部标签 -->
+    <delete id="deleteByUserIdAndGameId">
+        DELETE FROM user_game_tags
+        WHERE user_id = #{userId}
+          AND game_id = #{gameId}
+    </delete>
+
+    <!-- 批量插入标签（全量替换的写入阶段） -->
+    <insert id="batchInsert">
+        INSERT INTO user_game_tags (user_id, game_id, tag)
+        VALUES
+        <foreach collection="tags" item="item" separator=",">
+            (#{item.userId}, #{item.gameId}, #{item.tag})
+        </foreach>
+    </insert>
+
+</mapper>

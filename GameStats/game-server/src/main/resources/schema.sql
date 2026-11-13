@@ -5,6 +5,11 @@
 --
 -- 注意：若 game_stats 库已存在旧表，需先 DROP DATABASE game_stats
 --       让应用重新创建，或手动 ALTER TABLE 补齐字段。
+--
+-- 迁移说明：本脚本只负责"新库建表"与自定义标签/种子标记两张新表；
+--           旧库缺失的 user_games.completed_at、yearly_reports.snapshot_json/
+--           generated_at 由 DatabaseMigrationRunner 在应用启动时幂等补列。
+--           本阶段不手工执行任何 DDL/DML，需在 IDE 启动后端后由迁移自动执行。
 -- ============================================================
 
 -- ============================================================
@@ -107,6 +112,7 @@ CREATE TABLE IF NOT EXISTS user_games (
     play_time  INT         NOT NULL DEFAULT 0 COMMENT '游玩时长(分钟)',
     last_played DATETIME   DEFAULT NULL COMMENT '最后游玩时间',
     status     VARCHAR(50) NOT NULL DEFAULT '未玩' COMMENT '状态：未玩/在玩/已完成/搁置/弃坑',
+    completed_at DATETIME  DEFAULT NULL COMMENT '完成时间',
     notes      TEXT        COMMENT '游戏笔记',
     created_at DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     updated_at DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
@@ -156,6 +162,8 @@ CREATE TABLE IF NOT EXISTS yearly_reports (
     total_play_time    INT          NOT NULL DEFAULT 0 COMMENT '总游玩时长(分钟)',
     play_style         VARCHAR(100) DEFAULT NULL COMMENT '游玩风格',
     achievements_count INT          NOT NULL DEFAULT 0 COMMENT '成就解锁数',
+    snapshot_json      JSON         DEFAULT NULL COMMENT '完整年度报告快照(JSON)',
+    generated_at       DATETIME     DEFAULT NULL COMMENT '快照生成时间',
     created_at         DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     PRIMARY KEY (id),
     UNIQUE KEY uk_user_year (user_id, year)
@@ -187,3 +195,33 @@ SET @sql = IF(@col_exists = 0,
 PREPARE stmt FROM @sql;
 EXECUTE stmt;
 DEALLOCATE PREPARE stmt;
+-- ============================================================
+-- 11. 用户游戏自定义标签表（user × game × tag，幂等建表）
+--     标签与游戏类型解耦：类型仍由 game_genre_relations 提供。
+--     唯一键保证同一用户同一游戏的标签不重复；不建外键，归属由应用层校验。
+-- ============================================================
+CREATE TABLE IF NOT EXISTS user_game_tags (
+    id         BIGINT      NOT NULL AUTO_INCREMENT COMMENT '主键',
+    user_id    BIGINT      NOT NULL COMMENT '用户ID',
+    game_id    BIGINT      NOT NULL COMMENT '游戏ID',
+    tag        VARCHAR(50) NOT NULL COMMENT '用户自定义标签',
+    created_at DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_user_game_tag (user_id, game_id, tag),
+    KEY idx_user_game (user_id, game_id),
+    KEY idx_user_tag (user_id, tag)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='用户游戏自定义标签表';
+
+-- ============================================================
+-- 12. 一次性种子执行记录表
+--     每个一次性种子执行前先查 seed_name；已存在则整段跳过。
+--     业务数据与标记在同一事务内提交，避免"数据已插、标记未写"导致重复。
+--     用户删除业务数据不改变标记，重启不复活演示种子。
+-- ============================================================
+CREATE TABLE IF NOT EXISTS app_seed_log (
+    id          BIGINT      NOT NULL AUTO_INCREMENT COMMENT '主键',
+    seed_name   VARCHAR(64) NOT NULL COMMENT '种子名称',
+    executed_at DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '执行时间',
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_seed_name (seed_name)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='一次性种子执行记录表';

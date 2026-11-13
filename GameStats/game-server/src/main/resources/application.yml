@@ -6,8 +6,9 @@ spring:
     name: GameStats
   servlet:
     multipart:
-      max-file-size: 10MB
-      max-request-size: 10MB
+      # 头像上传三层一致：前端提示 / Spring 上限 / 业务校验均为 2MB
+      max-file-size: 2MB
+      max-request-size: 3MB
   # 数据源（MySQL game_stats 库，createDatabaseIfNotExist=true 自动建库）
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver

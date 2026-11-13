@@ -42,7 +42,12 @@ public interface DashboardMapper {
     List<DailyPlayVO> listPlayTrend(@Param("userId") Long userId, @Param("days") Integer days);
 
     /**
-     * 游戏类型分布（按用户游戏库时长占比）
+     * 游戏库累计游玩总分钟数（类型分布尾差校正的分母）
+     */
+    Integer sumUserPlayMinutes(@Param("userId") Long userId);
+
+    /**
+     * 游戏类型分布（每游戏只按主类型计一次，无类型归"其他"，合计 100%）
      */
     List<GenreDistributionVO> listGenreDistribution(@Param("userId") Long userId);
 

@@ -1,7 +1,15 @@
 -- ============================================================
 -- game_stats 种子数据
 -- ON DUPLICATE KEY UPDATE id=id：已存在则空操作，不覆盖用户后续修改
--- 状态值使用中文：未玩 / 在玩 / 已完成 / 搁置 / 弃坑
+--
+-- 状态值约束：user_games.status 只允许 未玩 / 在玩 / 已完成 / 搁置 / 弃坑，
+--             禁止英文枚举（playing/completed/not_played/on_hold/dropped）。
+-- 现有 8 条 user_games 状态均为合法中文五值（在玩 / 已完成），本脚本不改值。
+--
+-- 脚本边界（D2/C4 裁决）：
+--   1. 不写入 user_games.completed_at（旧库补列晚于本脚本）；
+--   2. 不写入 user_game_tags 标签种子（由启动迁移一次性执行，避免删除后复活）；
+--   3. 不写入演示通关/成就锚点（同上，由启动迁移执行）。
 -- ============================================================
 
 -- ============================================================
@@ -246,11 +254,11 @@ ON DUPLICATE KEY UPDATE id = id;
 --     使用 MySQL 8 递归 CTE 生成日期序列：从今天往前 359 天到今天
 --     game_id 在「已存在的 games」中按 id 顺序轮换（JOIN ROW_NUMBER 子查询，
 --     自动跳过已删除的游戏，如塞尔达/战神）；duration 随 n 与周末变化（周末 +120 分钟）
---     DELETE + INSERT 保证重启幂等：每次重置为干净的 360 条最新数据
+--     幂等策略：有记录即跳过（WHERE NOT EXISTS），不再无条件 DELETE + 重建，
+--     保证重启后用户新增的游玩记录不被清除；已有数据时整段跳过、不补插缺失日期。
+--     需要重置演示数据时，人工删除该用户 play_records 后重启。
 --     cte_max_recursion_depth 默认 1000，360 < 1000 无需调整
 -- ============================================================
-DELETE FROM play_records WHERE user_id = 1;
-
 INSERT INTO play_records (user_id, game_id, start_time, end_time, duration)
 WITH RECURSIVE date_seq(d, n) AS (
     SELECT DATE_SUB(CURDATE(), INTERVAL 359 DAY), 1
@@ -269,11 +277,13 @@ SELECT
 FROM date_seq ds
 JOIN (
     SELECT id, ROW_NUMBER() OVER (ORDER BY id) AS rn FROM games
-) g ON g.rn = ((ds.n - 1) % (SELECT COUNT(*) FROM games)) + 1;
+) g ON g.rn = ((ds.n - 1) % (SELECT COUNT(*) FROM games)) + 1
+WHERE NOT EXISTS (SELECT 1 FROM play_records WHERE user_id = 1);
 
 -- ============================================================
 -- 16. 年度报告快照（user_id = 1，2025 年）
---     首次访问 /api/report/yearly?year=2025 时会被 upsert 覆盖为实时聚合值
+--     旧格式快照仅存档，永不作为响应返回（snapshot_json IS NULL 视为无效，
+--     GET 回退实时计算）；不删除、不改数值，需要快照时由页面显式生成。
 -- ============================================================
 INSERT INTO yearly_reports (user_id, year, favorite_game_id, total_play_time, play_style, achievements_count) VALUES
     (1, 2025, 1, 20340, '资深玩家', 30)

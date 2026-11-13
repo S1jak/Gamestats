@@ -39,11 +39,13 @@
           </el-button>
           <template #dropdown>
             <el-dropdown-menu>
-              <el-dropdown-item command="正在玩">正在玩</el-dropdown-item>
-              <el-dropdown-item command="已完成">已完成</el-dropdown-item>
-              <el-dropdown-item command="未玩">未玩</el-dropdown-item>
-              <el-dropdown-item command="搁置">搁置</el-dropdown-item>
-              <el-dropdown-item command="弃坑">弃坑</el-dropdown-item>
+              <el-dropdown-item
+                v-for="opt in GAME_STATUS_OPTIONS"
+                :key="opt.value"
+                :command="opt.value"
+              >
+                {{ opt.label }}
+              </el-dropdown-item>
             </el-dropdown-menu>
           </template>
         </el-dropdown>
@@ -54,6 +56,7 @@
 
 <script setup>
 import { computed } from 'vue'
+import { GAME_STATUS_CLASS_MAP, GAME_STATUS_OPTIONS } from '@/utils/gameStatus'
 
 const props = defineProps({
   game: { type: Object, required: true },
@@ -64,14 +67,7 @@ defineEmits(['click', 'update-status'])
 
 const statusText = computed(() => props.game.status || '')
 
-const STATUS_CLASS_MAP = {
-  '正在玩': 'playing',
-  '已完成': 'completed',
-  '未玩': 'not_played',
-  '搁置': 'on_hold',
-  '弃坑': 'dropped'
-}
-const statusClass = computed(() => STATUS_CLASS_MAP[props.game.status] || 'not_played')
+const statusClass = computed(() => GAME_STATUS_CLASS_MAP[props.game.status] || 'not_played')
 
 const ratingClass = computed(() => {
   const r = props.game.rating

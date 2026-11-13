@@ -2,69 +2,139 @@
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.lxw.gamestats.mapper.YearlyReportMapper">
 
-    <!-- 基础统计：游戏库总数、通关数 -->
+    <!--
+        年度口径（D1 严格按年）统一时间窗：
+            x >= MAKEDATE(#{year}, 1) AND x < DATE_ADD(MAKEDATE(#{year}, 1), INTERVAL 1 YEAR)
+        采用半开区间而非 YEAR(x) = #{year}，避免把函数作用在列上而破坏索引。
+        所有查询均带 user_id 归属条件。
+    -->
+
+    <!-- 本年度游戏数（该年有游玩记录的不同游戏）与本年度通关数（completed_at 落在年内） -->
     <select id="getBasicStats" resultType="com.lxw.pojo.vo.YearReportVO">
         SELECT
-            COUNT(*) AS totalGames,
-            COUNT(CASE WHEN status = '已完成' THEN 1 END) AS completedGames
-        FROM user_games
-        WHERE user_id = #{userId}
+            (SELECT COUNT(DISTINCT pr.game_id)
+               FROM play_records pr
+              WHERE pr.user_id = #{userId}
+                AND pr.start_time &gt;= MAKEDATE(#{year}, 1)
+                AND pr.start_time &lt; DATE_ADD(MAKEDATE(#{year}, 1), INTERVAL 1 YEAR)) AS totalGames,
+            (SELECT COUNT(*)
+               FROM user_games ug
+              WHERE ug.user_id = #{userId}
+                AND ug.status = '已完成'
+                AND ug.completed_at &gt;= MAKEDATE(#{year}, 1)
+                AND ug.completed_at &lt; DATE_ADD(MAKEDATE(#{year}, 1), INTERVAL 1 YEAR)) AS completedGames
     </select>
 
-    <!-- 成就解锁数 -->
+    <!-- 本年度解锁成就数（按 unlocked_at 年份） -->
     <select id="countAchievements" resultType="java.lang.Integer">
-        SELECT COUNT(*) FROM user_achievements WHERE user_id = #{userId}
+        SELECT COUNT(*)
+          FROM user_achievements
+         WHERE user_id = #{userId}
+           AND unlocked_at &gt;= MAKEDATE(#{year}, 1)
+           AND unlocked_at &lt; DATE_ADD(MAKEDATE(#{year}, 1), INTERVAL 1 YEAR)
     </select>
 
-    <!-- 最爱游戏（按累计时长降序取第一） -->
+    <!-- 本年度游玩总分钟数（总时长由 Service 整体 ROUND(minutes / 60)） -->
+    <select id="sumPlayMinutes" resultType="java.lang.Integer">
+        SELECT COALESCE(SUM(duration), 0)
+          FROM play_records
+         WHERE user_id = #{userId}
+           AND start_time &gt;= MAKEDATE(#{year}, 1)
+           AND start_time &lt; DATE_ADD(MAKEDATE(#{year}, 1), INTERVAL 1 YEAR)
+    </select>
+
+    <!-- 本年度最爱游戏：年内 SUM(duration) 最高的游戏，无记录时 LIMIT 1 不产生行（返回 null） -->
     <select id="getFavoriteGame" resultType="com.lxw.pojo.vo.YearReportVO$FavoriteGameVO">
-        SELECT g.id, g.name, g.cover, ROUND(ug.play_time / 60) AS hours
-        FROM user_games ug
-        JOIN games g ON ug.game_id = g.id
-        WHERE ug.user_id = #{userId}
-        ORDER BY ug.play_time DESC
-        LIMIT 1
+        SELECT g.id,
+               g.name,
+               g.cover,
+               ROUND(t.minutes / 60) AS hours
+          FROM (
+                SELECT game_id, SUM(duration) AS minutes
+                  FROM play_records
+                 WHERE user_id = #{userId}
+                   AND start_time &gt;= MAKEDATE(#{year}, 1)
+                   AND start_time &lt; DATE_ADD(MAKEDATE(#{year}, 1), INTERVAL 1 YEAR)
+                 GROUP BY game_id
+                 HAVING SUM(duration) &gt; 0
+                 ORDER BY minutes DESC, game_id ASC
+                 LIMIT 1
+               ) t
+          JOIN games g ON g.id = t.game_id
     </select>
 
-    <!-- 游戏类型分布（按用户游戏时长占比） -->
+    <!--
+        本年度类型分布：
+          1) 先按该年 play_records 聚合每款游戏的时长（多类型游戏只算一次，规避 BUG-13）；
+          2) 再按主类型归类（主类型 = 该游戏类型 id 最小者，与详情页 genre 口径一致）；
+          3) 无类型关联的游戏归入"其他"；
+          4) percent 以年度总分钟为分母，保留两位小数；hours 保留一位小数。
+    -->
     <select id="listGenreStats" resultType="com.lxw.pojo.vo.YearReportVO$GenreStatVO">
-        SELECT gg.name AS name,
-               ROUND(SUM(ug.play_time) * 100 /
-                   (SELECT SUM(play_time) FROM user_games WHERE user_id = #{userId})
-               ) AS percent
-        FROM user_games ug
-        JOIN game_genre_relations gr ON ug.game_id = gr.game_id
-        JOIN game_genres gg ON gr.genre_id = gg.id
-        WHERE ug.user_id = #{userId}
-        GROUP BY gg.name
-        ORDER BY percent DESC
+        SELECT
+            COALESCE(mg.name, '其他') AS name,
+            ROUND(SUM(pg.minutes) * 100.0 /
+                  (SELECT SUM(duration)
+                     FROM play_records
+                    WHERE user_id = #{userId}
+                      AND start_time &gt;= MAKEDATE(#{year}, 1)
+                      AND start_time &lt; DATE_ADD(MAKEDATE(#{year}, 1), INTERVAL 1 YEAR)), 2) AS percent,
+            ROUND(SUM(pg.minutes) / 60.0, 1) AS hours
+          FROM (
+                SELECT game_id, SUM(duration) AS minutes
+                  FROM play_records
+                 WHERE user_id = #{userId}
+                   AND start_time &gt;= MAKEDATE(#{year}, 1)
+                   AND start_time &lt; DATE_ADD(MAKEDATE(#{year}, 1), INTERVAL 1 YEAR)
+                 GROUP BY game_id
+                 HAVING SUM(duration) &gt; 0
+               ) pg
+          LEFT JOIN (
+                SELECT gr.game_id, MIN(gg.id) AS genre_id
+                  FROM game_genre_relations gr
+                  JOIN game_genres gg ON gg.id = gr.genre_id
+                 GROUP BY gr.game_id
+               ) mgr ON mgr.game_id = pg.game_id
+          LEFT JOIN game_genres mg ON mg.id = mgr.genre_id
+         GROUP BY mg.name
+         ORDER BY percent DESC
     </select>
 
     <!-- 月度游玩趋势（当年，按月聚合时长，单位小时） -->
     <select id="listMonthlyTrend" resultType="com.lxw.pojo.vo.YearReportVO$MonthlyTrendVO">
-        SELECT MONTH(start_time) AS month, ROUND(SUM(duration) / 60) AS hours
-        FROM play_records
-        WHERE user_id = #{userId} AND YEAR(start_time) = #{year}
-        GROUP BY MONTH(start_time)
-        ORDER BY month
+        SELECT MONTH(start_time) AS month,
+               ROUND(SUM(duration) / 60) AS hours
+          FROM play_records
+         WHERE user_id = #{userId}
+           AND start_time &gt;= MAKEDATE(#{year}, 1)
+           AND start_time &lt; DATE_ADD(MAKEDATE(#{year}, 1), INTERVAL 1 YEAR)
+         GROUP BY MONTH(start_time)
+         ORDER BY month
     </select>
 
-    <!-- 查询已有年度报告 -->
+    <!-- 查询已有年度报告（含快照完整内容与生成时间） -->
     <select id="getByUserIdAndYear" resultType="com.lxw.pojo.entity.YearlyReport">
-        SELECT id, user_id, year, favorite_game_id, total_play_time, play_style, achievements_count, created_at
-        FROM yearly_reports
-        WHERE user_id = #{userId} AND year = #{year}
+        SELECT id, user_id, year, favorite_game_id, total_play_time, play_style,
+               achievements_count, snapshot_json, generated_at, created_at
+          FROM yearly_reports
+         WHERE user_id = #{userId} AND year = #{year}
     </select>
 
-    <!-- 新增或更新年度报告（upsert） -->
+    <!-- 新增或更新年度报告（唯一键 user_id + year，重复生成只更新同一行） -->
     <insert id="upsert" parameterType="com.lxw.pojo.entity.YearlyReport">
-        INSERT INTO yearly_reports (user_id, year, favorite_game_id, total_play_time, play_style, achievements_count)
-        VALUES (#{userId}, #{year}, #{favoriteGameId}, #{totalPlayTime}, #{playStyle}, #{achievementsCount})
+        INSERT INTO yearly_reports
+            (user_id, year, favorite_game_id, total_play_time, play_style,
+             achievements_count, snapshot_json, generated_at)
+        VALUES
+            (#{userId}, #{year}, #{favoriteGameId}, #{totalPlayTime}, #{playStyle},
+             #{achievementsCount}, #{snapshotJson}, #{generatedAt})
         ON DUPLICATE KEY UPDATE
             favorite_game_id = VALUES(favorite_game_id),
             total_play_time = VALUES(total_play_time),
             play_style = VALUES(play_style),
-            achievements_count = VALUES(achievements_count)
+            achievements_count = VALUES(achievements_count),
+            snapshot_json = VALUES(snapshot_json),
+            generated_at = VALUES(generated_at)
     </insert>
 
 </mapper>

@@ -109,6 +109,27 @@ export const useGameStore = defineStore('game', () => {
     }
   }
 
+  // 按日游玩趋势：GET /games/{gameId}/play-trend?days=N
+  // 后端仅返回有记录的日期（{date, minutes}），补齐零值由调用方负责
+  async function fetchPlayTrend(gameId, days = 30) {
+    const response = await api.get(`/games/${gameId}/play-trend`, { params: { days } })
+    return response || []
+  }
+
+  // 标签全量替换：PUT /games/{gameId}/tags，body {tags:[...]}
+  // 成功后用响应覆盖列表项与当前详情，保证本地与库一致
+  async function updateGameTags(gameId, tags) {
+    const response = await api.put(`/games/${gameId}/tags`, { tags })
+    const index = games.value.findIndex(g => g.id === gameId)
+    if (index !== -1) {
+      games.value[index] = { ...games.value[index], ...response }
+    }
+    if (currentGame.value && currentGame.value.id === gameId) {
+      currentGame.value = { ...currentGame.value, ...response }
+    }
+    return response
+  }
+
   function setFilters(newFilters) {
     filters.value = { ...filters.value, ...newFilters }
   }
@@ -133,8 +154,10 @@ export const useGameStore = defineStore('game', () => {
     totalGames,
     fetchGames,
     fetchGameById,
+    fetchPlayTrend,
     updateGameNote,
     updateGameStatus,
+    updateGameTags,
     setFilters,
     clearFilters
   }

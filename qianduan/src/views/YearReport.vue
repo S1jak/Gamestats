@@ -2,9 +2,22 @@
   <div class="year-report-page">
     <div class="report-header">
       <h1>年度游戏总结</h1>
-      <el-select v-model="selectedYear" size="large" style="width: 120px">
-        <el-option v-for="year in years" :key="year" :label="year + '年'" :value="year" />
-      </el-select>
+      <div class="report-header-actions">
+        <el-select v-model="selectedYear" size="large" style="width: 120px">
+          <el-option v-for="year in years" :key="year" :label="year + '年'" :value="year" />
+        </el-select>
+        <el-button
+          type="primary"
+          size="large"
+          :loading="generating"
+          :disabled="generating"
+          @click="generateSnapshot"
+        >
+          {{ hasSnapshot ? '刷新快照' : '生成快照' }}
+        </el-button>
+        <span v-if="hasSnapshot" class="snapshot-tip">快照数据 · 生成于 {{ reportData.snapshotGeneratedAt }}</span>
+        <span v-else class="snapshot-tip realtime">实时计算</span>
+      </div>
     </div>
     
     <div class="report-poster" ref="posterRef">
@@ -48,25 +61,26 @@
         
         <div class="poster-favorite">
           <h3>年度最爱</h3>
-          <div class="favorite-game">
+          <div v-if="favoriteGame" class="favorite-game">
             <div class="favorite-cover">
-              <img :src="reportData.favoriteGame.cover" :alt="reportData.favoriteGame.name" />
+              <img :src="favoriteGame.cover" :alt="favoriteGame.name" />
             </div>
             <div class="game-info">
-              <span class="game-name">{{ reportData.favoriteGame.name }}</span>
-              <span class="game-hours">{{ reportData.favoriteGame.hours }}小时</span>
+              <span class="game-name">{{ favoriteGame.name }}</span>
+              <span class="game-hours">{{ favoriteGame.hours }}小时</span>
             </div>
           </div>
+          <div v-else class="favorite-empty">暂无最爱游戏</div>
         </div>
         
         <div class="poster-tags">
-          <span class="tag" v-for="tag in reportData.tags" :key="tag">{{ tag }}</span>
+          <span class="tag" v-for="tag in reportTags" :key="tag">{{ tag }}</span>
         </div>
         
         <div class="poster-genres">
           <h3>游戏类型分布</h3>
           <div class="genre-bars">
-            <div v-for="genre in reportData.genres" :key="genre.name" class="genre-bar">
+            <div v-for="genre in reportGenres" :key="genre.name" class="genre-bar">
               <span class="genre-name">{{ genre.name }}</span>
               <div class="bar-track">
                 <div class="bar-fill" :style="{ width: genre.percent + '%', background: genre.color }"></div>
@@ -142,10 +156,11 @@ import { useUserStore } from '@/store/user'
 const userStore = useUserStore()
 const posterRef = ref(null)
 const trendChartRef = ref(null)
-const selectedYear = ref(2025)
 
 const currentYear = new Date().getFullYear()
 const years = Array.from({ length: 5 }, (_, i) => currentYear - i)
+// 默认年份跟随当前年，避免跨年后仍停留在硬编码年份
+const selectedYear = ref(currentYear)
 
 const userInfo = computed(() => userStore.userInfo || { username: '玩家', avatar: '' })
 
@@ -154,31 +169,80 @@ const reportData = ref({
   totalGames: 0,
   achievements: 0,
   completedGames: 0,
-  favoriteGame: { name: '', cover: '', hours: 0 },
+  favoriteGame: null,
   tags: [],
   genres: [],
-  monthlyTrend: []
+  monthlyTrend: [],
+  snapshotSource: 'realtime',
+  snapshotGeneratedAt: null
 })
 
+// 有效快照：来源为 snapshot 且带有生成时间，用于按钮文案与来源提示
+const hasSnapshot = computed(() =>
+  reportData.value.snapshotSource === 'snapshot' && !!reportData.value.snapshotGeneratedAt
+)
+
+// 生成/刷新快照进行中，防止重复提交
+const generating = ref(false)
+
 const monthlyData = computed(() => reportData.value.monthlyTrend || [])
+const favoriteGame = computed(() => reportData.value.favoriteGame || null)
+const reportTags = computed(() => reportData.value.tags || [])
+const reportGenres = computed(() => reportData.value.genres || [])
 
 const milestones = computed(() => [
-  { id: 1, name: '游戏达人', description: '游玩超过300小时', achieved: reportData.value.totalHours >= 300 },
-  { id: 2, name: '成就猎人', description: '解锁20个成就', achieved: reportData.value.achievements >= 20 },
-  { id: 3, name: '通关达人', description: '通关5款游戏', achieved: reportData.value.completedGames >= 5 },
-  { id: 4, name: '收藏家', description: '拥有20款游戏', achieved: reportData.value.totalGames >= 20 },
-  { id: 5, name: '传奇玩家', description: '游玩超过1000小时', achieved: reportData.value.totalHours >= 1000 }
+  { id: 1, name: '游戏达人', description: '年度游玩超过300小时', achieved: reportData.value.totalHours >= 300 },
+  { id: 2, name: '成就猎人', description: '年度解锁3个成就', achieved: reportData.value.achievements >= 3 },
+  { id: 3, name: '通关达人', description: '年度通关1款游戏', achieved: reportData.value.completedGames >= 1 },
+  { id: 4, name: '收藏家', description: '年度游玩8款游戏', achieved: reportData.value.totalGames >= 8 },
+  { id: 5, name: '传奇玩家', description: '年度游玩超过1000小时', achieved: reportData.value.totalHours >= 1000 }
 ])
 
 let trendChart = null
 
+// 统一的数据覆盖入口：GET 与生成接口都走这里，保证字段兜底一致
+function applyReportData(data) {
+  const source = data || {}
+  reportData.value = {
+    totalHours: source.totalHours ?? 0,
+    totalGames: source.totalGames ?? 0,
+    achievements: source.achievements ?? 0,
+    completedGames: source.completedGames ?? 0,
+    favoriteGame: source.favoriteGame || null,
+    tags: source.tags || [],
+    genres: source.genres || [],
+    monthlyTrend: source.monthlyTrend || [],
+    snapshotSource: source.snapshotSource === 'snapshot' ? 'snapshot' : 'realtime',
+    snapshotGeneratedAt: source.snapshotGeneratedAt || null
+  }
+}
+
 async function fetchReport() {
   try {
     const response = await api.get('/report/yearly', { params: { year: selectedYear.value } })
-    reportData.value = response
+    // 空库/空年份/未来年份统一兜底，避免模板解引用 null
+    applyReportData(response)
     initTrendChart()
   } catch (e) {
     // error handled by axios interceptor
+  }
+}
+
+// 显式生成/刷新当前年份快照：成功立即用返回值覆盖页面并重绘，失败保留原数据
+async function generateSnapshot() {
+  if (generating.value) return
+  generating.value = true
+  try {
+    const response = await api.post('/report/yearly/generate', null, {
+      params: { year: selectedYear.value }
+    })
+    applyReportData(response)
+    initTrendChart()
+    ElMessage.success(hasSnapshot.value ? '快照已刷新' : '快照已生成')
+  } catch (e) {
+    ElMessage.error('快照生成失败，已保留原有数据')
+  } finally {
+    generating.value = false
   }
 }
 
@@ -255,6 +319,23 @@ onMounted(() => fetchReport())
     font-size: 28px;
     font-weight: 700;
     color: $text-primary;
+  }
+
+  .report-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+
+  .snapshot-tip {
+    font-size: 12px;
+    color: $primary-color;
+
+    &.realtime {
+      color: $text-muted;
+    }
   }
 }
 
@@ -383,6 +464,18 @@ onMounted(() => fetchReport())
     min-height: 200px;
     display: flex;
     align-items: stretch;
+  }
+
+  // 无年度最爱时保留同等占位高度，避免海报区塌陷
+  .favorite-empty {
+    position: relative;
+    z-index: 3;
+    min-height: 200px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    color: $text-muted;
   }
 
   .favorite-cover {

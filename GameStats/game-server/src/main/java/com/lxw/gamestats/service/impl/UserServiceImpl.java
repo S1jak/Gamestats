@@ -23,10 +23,14 @@ import org.springframework.util.DigestUtils;
 import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
 
+import javax.imageio.ImageIO;
+import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -40,6 +44,12 @@ public class UserServiceImpl implements UserService {
 
     /** custom_tags 列 JSON 序列化用 */
     private static final ObjectMapper MAPPER = new ObjectMapper();
+
+    /** 头像大小上限 2MB，与 spring.servlet.multipart.max-file-size 保持一致 */
+    private static final long MAX_AVATAR_SIZE = 2L * 1024 * 1024;
+    private static final Set<String> ALLOWED_EXTENSIONS = Set.of("jpg", "jpeg", "png", "webp", "gif");
+    private static final Set<String> ALLOWED_CONTENT_TYPES =
+            Set.of("image/jpeg", "image/png", "image/webp", "image/gif");
 
     @Value("${game.upload.path:./uploads}")
     private String uploadPath;
@@ -112,14 +122,9 @@ public class UserServiceImpl implements UserService {
 
     @Override
     public String uploadAvatar(MultipartFile file) {
-        if (file == null || file.isEmpty()) {
-            throw new BaseException(MessageConstant.UPLOAD_FAILED);
-        }
-        String original = file.getOriginalFilename();
-        String suffix = StringUtils.hasText(original) && original.contains(".")
-                ? original.substring(original.lastIndexOf("."))
-                : ".jpg";
-        String fileName = UUID.randomUUID().toString().replace("-", "") + suffix;
+        // 全部校验通过后才落盘，落盘扩展名由魔数推断，不使用客户端文件名
+        String suffix = validateAvatar(file);
+        String fileName = UUID.randomUUID().toString().replace("-", "") + "." + suffix;
 
         File dir = new File(uploadPath);
         if (!dir.exists() && !dir.mkdirs()) {
@@ -145,6 +150,125 @@ public class UserServiceImpl implements UserService {
         userMapper.updateProfile(user);
 
         return avatarUrl;
+    }
+
+    /**
+     * 头像上传校验，全部通过返回由魔数推断的扩展名。
+     * <p>
+     * 校验顺序：非空（含 0 字节）→ 大小 ≤2MB → 扩展名白名单 → Content-Type 白名单
+     * → 魔数与声明类型一致 → 内容可解码（WEBP 仅靠文件头）。
+     * 任一失败抛 BaseException，调用方不得落盘或修改 users.avatar。
+     */
+    private String validateAvatar(MultipartFile file) {
+        if (file == null || file.isEmpty()) {
+            throw new BaseException(MessageConstant.UPLOAD_EMPTY);
+        }
+        String originalFilename = file.getOriginalFilename();
+        if (!StringUtils.hasText(originalFilename)) {
+            throw new BaseException(MessageConstant.UPLOAD_EMPTY);
+        }
+        if (file.getSize() > MAX_AVATAR_SIZE) {
+            throw new BaseException(MessageConstant.UPLOAD_TOO_LARGE);
+        }
+        String declaredExtension = extensionOf(originalFilename);
+        if (!ALLOWED_EXTENSIONS.contains(declaredExtension)) {
+            throw new BaseException(MessageConstant.UPLOAD_INVALID_FORMAT);
+        }
+        String contentType = normalizedContentType(file.getContentType());
+        if (!ALLOWED_CONTENT_TYPES.contains(contentType)) {
+            throw new BaseException(MessageConstant.UPLOAD_INVALID_FORMAT);
+        }
+        byte[] bytes;
+        try {
+            bytes = file.getBytes();
+        } catch (IOException e) {
+            log.error("读取上传文件失败", e);
+            throw new BaseException(MessageConstant.UPLOAD_FAILED);
+        }
+        String detectedExtension = detectExtensionByMagic(bytes);
+        if (detectedExtension == null
+                || !isDeclaredTypeMatched(detectedExtension, declaredExtension, contentType)) {
+            throw new BaseException(MessageConstant.UPLOAD_INVALID_FORMAT);
+        }
+        // WEBP 无 ImageIO 解码器，其内容有效性已由 RIFF....WEBP 文件头判定
+        if (!"webp".equals(detectedExtension) && !isDecodableImage(bytes)) {
+            throw new BaseException(MessageConstant.UPLOAD_INVALID_FORMAT);
+        }
+        return detectedExtension;
+    }
+
+    /** 仅取文件名最后一段的扩展名（忽略路径），统一小写 */
+    private String extensionOf(String originalFilename) {
+        String name = originalFilename.replace('\\', '/');
+        int slash = name.lastIndexOf('/');
+        if (slash >= 0) {
+            name = name.substring(slash + 1);
+        }
+        int dot = name.lastIndexOf('.');
+        if (dot < 0 || dot == name.length() - 1) {
+            return "";
+        }
+        return name.substring(dot + 1).toLowerCase(Locale.ROOT);
+    }
+
+    /** Content-Type 去掉 charset 等参数后统一小写 */
+    private String normalizedContentType(String contentType) {
+        if (!StringUtils.hasText(contentType)) {
+            return "";
+        }
+        int semicolon = contentType.indexOf(';');
+        String value = semicolon >= 0 ? contentType.substring(0, semicolon) : contentType;
+        return value.trim().toLowerCase(Locale.ROOT);
+    }
+
+    /** 通过文件头魔数识别真实图片类型，无法识别返回 null */
+    private String detectExtensionByMagic(byte[] bytes) {
+        if (bytes.length >= 3
+                && (bytes[0] & 0xFF) == 0xFF && (bytes[1] & 0xFF) == 0xD8 && (bytes[2] & 0xFF) == 0xFF) {
+            return "jpg";
+        }
+        if (bytes.length >= 8
+                && (bytes[0] & 0xFF) == 0x89 && (bytes[1] & 0xFF) == 0x50
+                && (bytes[2] & 0xFF) == 0x4E && (bytes[3] & 0xFF) == 0x47
+                && (bytes[4] & 0xFF) == 0x0D && (bytes[5] & 0xFF) == 0x0A
+                && (bytes[6] & 0xFF) == 0x1A && (bytes[7] & 0xFF) == 0x0A) {
+            return "png";
+        }
+        if (bytes.length >= 4
+                && (bytes[0] & 0xFF) == 0x47 && (bytes[1] & 0xFF) == 0x49
+                && (bytes[2] & 0xFF) == 0x46 && (bytes[3] & 0xFF) == 0x38) {
+            return "gif";
+        }
+        if (bytes.length >= 12
+                && (bytes[0] & 0xFF) == 0x52 && (bytes[1] & 0xFF) == 0x49
+                && (bytes[2] & 0xFF) == 0x46 && (bytes[3] & 0xFF) == 0x46
+                && (bytes[8] & 0xFF) == 0x57 && (bytes[9] & 0xFF) == 0x45
+                && (bytes[10] & 0xFF) == 0x42 && (bytes[11] & 0xFF) == 0x50) {
+            return "webp";
+        }
+        return null;
+    }
+
+    /** 魔数推断类型必须与声明扩展名、Content-Type 一致 */
+    private boolean isDeclaredTypeMatched(String detectedExtension, String declaredExtension, String contentType) {
+        return switch (detectedExtension) {
+            case "jpg" -> ("jpg".equals(declaredExtension) || "jpeg".equals(declaredExtension))
+                    && "image/jpeg".equals(contentType);
+            case "png" -> "png".equals(declaredExtension) && "image/png".equals(contentType);
+            case "gif" -> "gif".equals(declaredExtension) && "image/gif".equals(contentType);
+            case "webp" -> "webp".equals(declaredExtension) && "image/webp".equals(contentType);
+            default -> false;
+        };
+    }
+
+    /** ImageIO 无法解析即视为伪造图片 */
+    private boolean isDecodableImage(byte[] bytes) {
+        try {
+            return ImageIO.read(new ByteArrayInputStream(bytes)) != null;
+        } catch (IOException e) {
+            log.warn("图片内容校验失败: {}", e.getMessage());
+            return false;
+        }
     }
 
     @Override
