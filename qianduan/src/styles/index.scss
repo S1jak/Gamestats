@@ -1,0 +1,374 @@
+@use './variables.scss' as *;
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body {
+  height: 100%;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background-color: $bg-dark;
+  color: $text-primary;
+  line-height: 1.6;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: $bg-darker;
+}
+
+::-webkit-scrollbar-thumb {
+  background: $border-light;
+  border-radius: 4px;
+  
+  &:hover {
+    background: $text-muted;
+  }
+}
+
+::selection {
+  background: rgba($primary-color, 0.3);
+  color: $text-primary;
+}
+
+a {
+  color: $primary-color;
+  text-decoration: none;
+  transition: color $transition-fast;
+  
+  &:hover {
+    color: $primary-hover;
+  }
+}
+
+.page-container {
+  padding: 24px;
+  min-height: calc(100vh - $header-height);
+}
+
+.card {
+  background: $bg-card;
+  border-radius: $radius-lg;
+  border: 1px solid $border-color;
+  padding: 20px;
+  transition: all $transition-normal;
+  
+  &:hover {
+    background: $bg-card-hover;
+    border-color: $border-light;
+    transform: translateY(-2px);
+    box-shadow: $shadow-md;
+  }
+}
+
+.card-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: $text-primary;
+  margin-bottom: 16px;
+}
+
+.text-gradient {
+  background: linear-gradient(135deg, $primary-color, $secondary-color);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.glow-effect {
+  box-shadow: $shadow-glow;
+}
+
+.skeleton {
+  background: linear-gradient(90deg, $bg-card 25%, $bg-card-hover 50%, $bg-card 75%);
+  background-size: 200% 100%;
+  animation: skeleton-loading 1.5s infinite;
+  border-radius: $radius-sm;
+}
+
+@keyframes skeleton-loading {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.fade-in {
+  animation: fadeIn 0.3s ease forwards;
+}
+
+.el-button--primary {
+  --el-button-bg-color: #{$primary-color};
+  --el-button-border-color: #{$primary-color};
+  --el-button-hover-bg-color: #{$primary-hover};
+  --el-button-hover-border-color: #{$primary-hover};
+}
+
+.el-input__wrapper {
+  background-color: $bg-card !important;
+  box-shadow: 0 0 0 1px $border-color inset !important;
+  
+  &:hover {
+    box-shadow: 0 0 0 1px $border-light inset !important;
+  }
+  
+  &.is-focus {
+    box-shadow: 0 0 0 1px $primary-color inset !important;
+  }
+}
+
+.el-input__inner {
+  color: $text-primary !important;
+  
+  &::placeholder {
+    color: $text-muted !important;
+  }
+}
+
+.el-select-dropdown {
+  background-color: $bg-card !important;
+  border-color: $border-color !important;
+}
+
+.el-select-dropdown__item {
+  color: $text-secondary !important;
+
+  &.hover, &:hover {
+    background-color: $bg-card-hover !important;
+  }
+
+  &.selected {
+    color: $primary-color !important;
+  }
+}
+
+// ===== 紫蓝渐变弹窗主题（el-dialog teleport 到 body，须全局定义）=====
+// 用法：el-dialog 加 class="gs-dialog"
+.gs-dialog {
+  border-radius: 16px !important;
+  overflow: hidden;
+  border: 1px solid rgba(99, 102, 241, 0.3) !important;
+  box-shadow: 0 20px 60px rgba(91, 60, 196, 0.35), 0 8px 32px rgba(0, 0, 0, 0.5) !important;
+  background: #1a1a2e !important;
+
+  .el-dialog__header {
+    background: linear-gradient(135deg, #5b3cc4 0%, #3a6ee0 100%);
+    box-shadow: 0 4px 20px rgba(91, 60, 196, 0.35);
+    padding: 18px 24px;
+    margin-right: 0;
+
+    .el-dialog__title {
+      color: #ffffff;
+      font-size: 17px;
+      font-weight: 600;
+      letter-spacing: 1px;
+    }
+
+    .el-dialog__headerbtn {
+      top: 18px;
+      right: 20px;
+
+      .el-dialog__close {
+        color: rgba(255, 255, 255, 0.88);
+        font-size: 18px;
+        transition: all 0.3s ease;
+
+        &:hover {
+          color: #ffffff;
+          transform: scale(1.15);
+          text-shadow: 0 0 8px rgba(255, 255, 255, 0.6);
+        }
+      }
+    }
+  }
+
+  .el-dialog__body {
+    background: linear-gradient(180deg, rgba(91, 60, 196, 0.1) 0%, rgba(58, 110, 224, 0.06) 100%), #1a1a2e;
+    padding: 28px 24px;
+    color: #e4e4e7;
+  }
+
+  .el-dialog__footer {
+    background: #1a1a2e;
+    border-top: 1px solid rgba(99, 102, 241, 0.15);
+    padding: 16px 24px 20px;
+  }
+
+  .el-form-item__label {
+    color: #a8a8d4;
+    font-weight: 500;
+  }
+
+  .el-input__wrapper,
+  .el-textarea__inner {
+    background-color: rgba(10, 10, 26, 0.6) !important;
+    box-shadow: 0 0 0 1px rgba(99, 102, 241, 0.25) inset !important;
+    border-radius: 10px !important;
+    transition: all 0.3s ease;
+
+    &:hover {
+      box-shadow: 0 0 0 1px rgba(99, 102, 241, 0.5) inset !important;
+    }
+
+    &.is-focus,
+    &:focus {
+      box-shadow: 0 0 0 1px #5b3cc4 inset, 0 0 12px rgba(91, 60, 196, 0.35) !important;
+    }
+  }
+
+  .el-input__inner {
+    color: #ffffff;
+  }
+
+  .el-textarea__inner {
+    color: #ffffff;
+  }
+
+  // 主按钮紫蓝渐变
+  .el-button--primary {
+    background: linear-gradient(135deg, #5b3cc4 0%, #3a6ee0 100%) !important;
+    border: none !important;
+    color: #ffffff !important;
+    font-weight: 600;
+    border-radius: 10px !important;
+    transition: all 0.3s ease;
+
+    &:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 20px rgba(91, 60, 196, 0.45) !important;
+      opacity: 0.95;
+    }
+
+    &.is-loading {
+      transform: none;
+    }
+  }
+
+  // 次按钮描边紫蓝
+  .el-button:not(.el-button--primary):not(.is-text) {
+    background: transparent !important;
+    border: 1px solid rgba(99, 102, 241, 0.5) !important;
+    color: #a8a8d4 !important;
+    border-radius: 10px !important;
+    transition: all 0.3s ease;
+
+    &:hover {
+      background: rgba(99, 102, 241, 0.12) !important;
+      border-color: #5b3cc4 !important;
+      color: #ffffff !important;
+    }
+  }
+}
+
+// ===== 账号菜单下拉（el-dropdown teleport 到 body，须全局定义）=====
+.account-menu {
+  background: #1a1a2e !important;
+  border: 1px solid rgba(99, 102, 241, 0.3) !important;
+  border-radius: 12px !important;
+  box-shadow: 0 12px 40px rgba(91, 60, 196, 0.3), 0 4px 16px rgba(0, 0, 0, 0.5) !important;
+  padding: 6px !important;
+  min-width: 180px;
+
+  .el-dropdown-menu__item {
+    color: #d4d4e8 !important;
+    border-radius: 8px !important;
+    padding: 10px 16px !important;
+    margin: 2px 0;
+    transition: all 0.25s ease;
+
+    .el-icon {
+      color: #818cf8;
+      margin-right: 8px;
+    }
+
+    &:hover {
+      background: linear-gradient(135deg, rgba(91, 60, 196, 0.25), rgba(58, 110, 224, 0.18)) !important;
+      color: #ffffff !important;
+
+      .el-icon {
+        color: #ffffff;
+      }
+    }
+
+    &.logout-item {
+      color: #f87171 !important;
+
+      .el-icon {
+        color: #f87171;
+      }
+
+      &:hover {
+        background: rgba(239, 68, 68, 0.15) !important;
+        color: #fca5a5 !important;
+      }
+    }
+  }
+
+  // 分隔线
+  .el-dropdown-menu__item--divided {
+    border-top: 1px solid rgba(99, 102, 241, 0.2) !important;
+    margin-top: 4px !important;
+  }
+}
+
+// ===== ElMessageBox 紫蓝主题（命令式调用 teleport 到 body，须全局定义）=====
+.el-overlay-message-box {
+  .el-message-box {
+    background: #1a1a2e !important;
+    border: 1px solid rgba(99, 102, 241, 0.3) !important;
+    border-radius: 16px !important;
+    box-shadow: 0 20px 60px rgba(91, 60, 196, 0.35), 0 8px 32px rgba(0, 0, 0, 0.5) !important;
+    overflow: hidden;
+
+    .el-message-box__header {
+      background: linear-gradient(135deg, #5b3cc4 0%, #3a6ee0 100%);
+      padding: 16px 20px;
+      margin-right: 0;
+
+      .el-message-box__title {
+        color: #ffffff;
+        font-weight: 600;
+      }
+
+      .el-message-box__headerbtn .el-message-box__close {
+        color: rgba(255, 255, 255, 0.88);
+
+        &:hover {
+          color: #ffffff;
+        }
+      }
+    }
+
+    .el-message-box__content {
+      background: linear-gradient(180deg, rgba(91, 60, 196, 0.1) 0%, rgba(58, 110, 224, 0.06) 100%), #1a1a2e;
+      padding: 24px 20px;
+
+      .el-message-box__message {
+        color: #e4e4e7;
+      }
+
+      .el-message-box__status {
+        color: #fbbf24;
+      }
+    }
+
+    .el-message-box__btns {
+      background: #1a1a2e;
+      padding: 12px 20px 20px;
+
+      .el-button--primary {
+        background: linear-gradient(135deg, #5b3cc4 0%, #3a6ee0 100%) !important;
+        border: none !important;
+      }
+    }
+  }
+}

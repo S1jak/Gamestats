@@ -1,0 +1,103 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.lxw.gamestats.mapper.UserGameMapper">
+
+    <!--
+        获取用户的游戏列表
+        GameVO 字段映射（依赖 map-underscore-to-camel-case）：
+          id←g.id, name←g.name, cover←g.cover, genre←子查询, developer←g.developer,
+          releaseDate←g.release_date, rating←g.rating, playTime←ug.play_time,
+          sessions←子查询, lastPlayed←DATE(ug.last_played),
+          achievements←子查询, totalAchievements←子查询,
+          status←ug.status, note←ug.notes
+    -->
+    <select id="listGameVOsByUserId" resultType="com.lxw.pojo.vo.GameVO">
+        SELECT
+            g.id,
+            g.name,
+            g.cover,
+            (SELECT gg.name FROM game_genres gg
+             JOIN game_genre_relations gr ON gg.id = gr.genre_id
+             WHERE gr.game_id = g.id ORDER BY gg.id LIMIT 1) AS genre,
+            g.developer,
+            g.release_date,
+            g.rating,
+            ug.play_time,
+            (SELECT COUNT(*) FROM play_records pr
+             WHERE pr.user_id = ug.user_id AND pr.game_id = g.id) AS sessions,
+            DATE(ug.last_played) AS last_played,
+            (SELECT COUNT(*) FROM user_achievements ua
+             JOIN achievements a ON ua.achievement_id = a.id
+             WHERE ua.user_id = ug.user_id AND a.game_id = g.id) AS achievements,
+            (SELECT COUNT(*) FROM achievements a WHERE a.game_id = g.id) AS total_achievements,
+            ug.status,
+            ug.notes AS note
+        FROM user_games ug
+        JOIN games g ON ug.game_id = g.id
+        WHERE ug.user_id = #{userId}
+        ORDER BY ug.last_played DESC, ug.id DESC
+    </select>
+
+    <!-- 获取单款游戏基本信息（按 game.id + user_id 校验归属） -->
+    <select id="getGameVOByIdAndUserId" resultType="com.lxw.pojo.vo.GameVO">
+        SELECT
+            g.id,
+            g.name,
+            g.cover,
+            (SELECT gg.name FROM game_genres gg
+             JOIN game_genre_relations gr ON gg.id = gr.genre_id
+             WHERE gr.game_id = g.id ORDER BY gg.id LIMIT 1) AS genre,
+            g.developer,
+            g.release_date,
+            g.rating,
+            ug.play_time,
+            (SELECT COUNT(*) FROM play_records pr
+             WHERE pr.user_id = ug.user_id AND pr.game_id = g.id) AS sessions,
+            DATE(ug.last_played) AS last_played,
+            (SELECT COUNT(*) FROM user_achievements ua
+             JOIN achievements a ON ua.achievement_id = a.id
+             WHERE ua.user_id = ug.user_id AND a.game_id = g.id) AS achievements,
+            (SELECT COUNT(*) FROM achievements a WHERE a.game_id = g.id) AS total_achievements,
+            ug.status,
+            ug.notes AS note
+        FROM user_games ug
+        JOIN games g ON ug.game_id = g.id
+        WHERE g.id = #{id} AND ug.user_id = #{userId}
+    </select>
+
+    <!-- 用户游戏统计（聚合查询，直接映射到 UserStatsVO） -->
+    <select id="getStatsByUserId" resultType="com.lxw.pojo.vo.UserStatsVO">
+        SELECT
+            COUNT(*) AS total_games,
+            COALESCE(SUM(play_time), 0) AS total_play_time,
+            (SELECT COUNT(*) FROM user_achievements ua WHERE ua.user_id = #{userId}) AS achievements,
+            COUNT(CASE WHEN status = '已完成' THEN 1 END) AS completed_games
+        FROM user_games
+        WHERE user_id = #{userId}
+    </select>
+
+    <!-- 更新游戏笔记 -->
+    <update id="updateNote">
+        UPDATE user_games
+        SET notes = #{note}
+        WHERE user_id = #{userId} AND game_id = #{gameId}
+    </update>
+
+    <!-- 更新游戏状态 -->
+    <update id="updateStatus">
+        UPDATE user_games
+        SET status = #{status}
+        WHERE user_id = #{userId} AND game_id = #{gameId}
+    </update>
+
+    <!-- 查询游戏的类型名称列表（用于 GameVO.tags） -->
+    <select id="listGenreNamesByGameId" resultType="java.lang.String">
+        SELECT gg.name
+        FROM game_genres gg
+        JOIN game_genre_relations gr ON gg.id = gr.genre_id
+        WHERE gr.game_id = #{gameId}
+        ORDER BY gg.id
+    </select>
+
+</mapper>

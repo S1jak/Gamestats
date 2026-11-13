@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.lxw.gamestats.mapper.YearlyReportMapper">
+
+    <!-- 基础统计：游戏库总数、通关数 -->
+    <select id="getBasicStats" resultType="com.lxw.pojo.vo.YearReportVO">
+        SELECT
+            COUNT(*) AS totalGames,
+            COUNT(CASE WHEN status = '已完成' THEN 1 END) AS completedGames
+        FROM user_games
+        WHERE user_id = #{userId}
+    </select>
+
+    <!-- 成就解锁数 -->
+    <select id="countAchievements" resultType="java.lang.Integer">
+        SELECT COUNT(*) FROM user_achievements WHERE user_id = #{userId}
+    </select>
+
+    <!-- 最爱游戏（按累计时长降序取第一） -->
+    <select id="getFavoriteGame" resultType="com.lxw.pojo.vo.YearReportVO$FavoriteGameVO">
+        SELECT g.id, g.name, g.cover, ROUND(ug.play_time / 60) AS hours
+        FROM user_games ug
+        JOIN games g ON ug.game_id = g.id
+        WHERE ug.user_id = #{userId}
+        ORDER BY ug.play_time DESC
+        LIMIT 1
+    </select>
+
+    <!-- 游戏类型分布（按用户游戏时长占比） -->
+    <select id="listGenreStats" resultType="com.lxw.pojo.vo.YearReportVO$GenreStatVO">
+        SELECT gg.name AS name,
+               ROUND(SUM(ug.play_time) * 100 /
+                   (SELECT SUM(play_time) FROM user_games WHERE user_id = #{userId})
+               ) AS percent
+        FROM user_games ug
+        JOIN game_genre_relations gr ON ug.game_id = gr.game_id
+        JOIN game_genres gg ON gr.genre_id = gg.id
+        WHERE ug.user_id = #{userId}
+        GROUP BY gg.name
+        ORDER BY percent DESC
+    </select>
+
+    <!-- 月度游玩趋势（当年，按月聚合时长，单位小时） -->
+    <select id="listMonthlyTrend" resultType="com.lxw.pojo.vo.YearReportVO$MonthlyTrendVO">
+        SELECT MONTH(start_time) AS month, ROUND(SUM(duration) / 60) AS hours
+        FROM play_records
+        WHERE user_id = #{userId} AND YEAR(start_time) = #{year}
+        GROUP BY MONTH(start_time)
+        ORDER BY month
+    </select>
+
+    <!-- 查询已有年度报告 -->
+    <select id="getByUserIdAndYear" resultType="com.lxw.pojo.entity.YearlyReport">
+        SELECT id, user_id, year, favorite_game_id, total_play_time, play_style, achievements_count, created_at
+        FROM yearly_reports
+        WHERE user_id = #{userId} AND year = #{year}
+    </select>
+
+    <!-- 新增或更新年度报告（upsert） -->
+    <insert id="upsert" parameterType="com.lxw.pojo.entity.YearlyReport">
+        INSERT INTO yearly_reports (user_id, year, favorite_game_id, total_play_time, play_style, achievements_count)
+        VALUES (#{userId}, #{year}, #{favoriteGameId}, #{totalPlayTime}, #{playStyle}, #{achievementsCount})
+        ON DUPLICATE KEY UPDATE
+            favorite_game_id = VALUES(favorite_game_id),
+            total_play_time = VALUES(total_play_time),
+            play_style = VALUES(play_style),
+            achievements_count = VALUES(achievements_count)
+    </insert>
+
+</mapper>

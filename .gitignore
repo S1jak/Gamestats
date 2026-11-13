@@ -1,0 +1,129 @@
+# ==============================================================================
+# GameStats 仓库根 .gitignore
+# 适用范围：整个仓库 —— GameStats/（Spring Boot 多模块后端）+ qianduan/（Vue 3 前端）
+# 注意：GameStats/.gitignore 仍然存在，两份规则的忽略结果取并集，本文件可独立覆盖
+# 原则：只提交"源码 + 配置 + 依赖清单 + 文档"，不提交构建产物、IDE 配置、运行期数据
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# 1. Office / 演示文档（PPT、Word、Excel、PDF）
+#    这些是交付材料，不是代码资产；GitHub 上保留源码即可。
+#    如确实需要随仓库分发某一份文件，可临时用 git add -f <文件> 强制加入。
+#    注意：仓库根的两份文档（.pptx/.docx）会被本组规则忽略；
+#          而 GameStats-项目解析与Agent协作交付.md 属于交付文档，建议提交（.md 不在忽略范围）。
+# ------------------------------------------------------------------------------
+*.ppt
+*.pptx
+*.pptm
+*.pps
+*.ppsx
+*.doc
+*.docx
+*.docm
+*.xls
+*.xlsx
+*.xlsm
+*.pdf
+
+# ------------------------------------------------------------------------------
+# 2. Java / Maven 构建产物
+#    target/：三模块编译输出、game-server.jar（约 32MB）、game-server.jar.original
+#    *.class / *.jar：防止构建产物散落在 target 之外时误提交
+#    Maven Wrapper：只提交 .mvn/wrapper/maven-wrapper.properties，
+#                   maven-wrapper.jar 属于可再生成的二进制，忽略。
+#                   （当前工程缺 mvnw / mvnw.cmd 脚本，IDE 构建不依赖它们）
+# ------------------------------------------------------------------------------
+target/
+*.class
+*.jar
+*.jar.original
+*.war
+*.ear
+.flattened-pom.xml
+dependency-reduced-pom.xml
+hs_err_pid*
+replay_pid*
+
+# ------------------------------------------------------------------------------
+# 3. Node / 前端构建与依赖
+#    node_modules/、dist/、.vite 缓存均可用 npm install / npm run build 重建。
+#    package-lock.json 是"依赖清单"，必须提交（见交付说明中的取舍表），因此不要在此忽略。
+# ------------------------------------------------------------------------------
+node_modules/
+dist/
+.vite/
+.cache/
+.turbo/
+.parcel-cache/
+coverage/
+.nyc_output/
+*.local
+
+# ------------------------------------------------------------------------------
+# 4. IDE / 操作系统临时文件
+#    .idea/：IntelliJ IDEA 工程配置（misc.xml 里的 SDK 路径属于本机私有配置）
+#    *.iml / *.ipr / *.iws：IDEA 模块文件
+#    .vscode/：VS Code 工作区配置
+# ------------------------------------------------------------------------------
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+Thumbs.db
+ehthumbs.db
+desktop.ini
+*.swp
+*.swo
+*~
+*.tmp
+
+# ------------------------------------------------------------------------------
+# 5. 运行期产物与敏感配置
+#    uploads/：用户上传的头像（运行期数据 + 个人隐私），不属于源码。
+#             用 **/uploads/* 只忽略"内容"而不忽略目录本身，便于用 .gitkeep 占位；
+#             当前已有的 GameStats/uploads/2aece849....png 会被忽略。
+#    application.yml：项目启动必需（数据源 / SQL 初始化 / MyBatis / JWT / 上传目录），
+#                     必须提交。其中 root/123456 与 JWT secret 是本地教学配置，
+#                     公开仓库前建议改为环境变量注入（改动配置本身不在本轮范围）。
+#    application-local*.yml：本地覆盖配置（真实口令/密钥）一律忽略。
+# ------------------------------------------------------------------------------
+**/uploads/*
+!**/uploads/.gitkeep
+logs/
+*.log
+*.log.*
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+application-local*
+*-local.yml
+*-local.yaml
+*-local.properties
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.keystore
+*.jks
+
+# ------------------------------------------------------------------------------
+# 6. 代码智能体工具目录（CodeArts / 本地 Agent 运行态，非项目源码）
+#    GameStats-项目解析与Agent协作交付.md 不在本组内，属于需要提交的交付文档。
+# ------------------------------------------------------------------------------
+.codeartsdoer/
+.merkle-snapshot.json
+
+# ------------------------------------------------------------------------------
+# 7. 兜底：Spring Boot Initializr 生成的帮助文件（GameStats/.gitignore 亦已忽略）
+# ------------------------------------------------------------------------------
+GameStats/HELP.md

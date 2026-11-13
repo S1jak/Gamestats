@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.lxw.gamestats.mapper.UserMapper">
+
+    <!-- 根据手机号查询 -->
+    <select id="getByPhone" resultType="com.lxw.pojo.entity.User">
+        SELECT * FROM users WHERE phone = #{phone}
+    </select>
+
+    <!-- 根据 platform + platformId 查询（OAuth） -->
+    <select id="getByPlatform" resultType="com.lxw.pojo.entity.User">
+        SELECT * FROM users WHERE platform = #{platform} AND platform_id = #{platformId}
+    </select>
+
+    <!-- 根据主键查询 -->
+    <select id="getById" resultType="com.lxw.pojo.entity.User">
+        SELECT * FROM users WHERE id = #{id}
+    </select>
+
+    <!-- 新增用户（OAuth 首次登录自动注册） -->
+    <insert id="insert" parameterType="com.lxw.pojo.entity.User" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO users (username, avatar, email, phone, password_hash, bio, level, join_date,
+                           platform, platform_id, custom_tags, gender, birthday, region,
+                           preferred_language, profile_visibility, allow_comments, email_notify, site_notify)
+        VALUES (#{username}, #{avatar}, #{email}, #{phone}, #{passwordHash}, #{bio}, #{level}, #{joinDate},
+                #{platform}, #{platformId}, #{customTags}, #{gender}, #{birthday}, #{region},
+                #{preferredLanguage}, #{profileVisibility}, #{allowComments}, #{emailNotify}, #{siteNotify})
+    </insert>
+
+    <!-- 更新用户资料（动态字段） -->
+    <update id="updateProfile" parameterType="com.lxw.pojo.entity.User">
+        UPDATE users
+        <set>
+            <if test="username != null and username != ''">username = #{username},</if>
+            <if test="bio != null">bio = #{bio},</if>
+            <if test="avatar != null and avatar != ''">avatar = #{avatar},</if>
+            <if test="level != null">level = #{level},</if>
+            <if test="customTags != null">custom_tags = #{customTags},</if>
+            <if test="gender != null">gender = #{gender},</if>
+            <if test="birthday != null">birthday = #{birthday},</if>
+            <if test="region != null">region = #{region},</if>
+            <if test="preferredLanguage != null">preferred_language = #{preferredLanguage},</if>
+            <if test="profileVisibility != null">profile_visibility = #{profileVisibility},</if>
+            <if test="allowComments != null">allow_comments = #{allowComments},</if>
+            <if test="emailNotify != null">email_notify = #{emailNotify},</if>
+            <if test="siteNotify != null">site_notify = #{siteNotify},</if>
+        </set>
+        WHERE id = #{id}
+    </update>
+
+    <!-- 修改密码 -->
+    <update id="updatePassword">
+        UPDATE users SET password_hash = #{passwordHash}, updated_at = NOW() WHERE id = #{id}
+    </update>
+
+</mapper>

@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.lxw.gamestats.mapper.AchievementMapper">
+
+    <!-- 查询游戏的成就列表（含当前用户解锁状态） -->
+    <select id="listVOsByGameIdAndUserId" resultType="com.lxw.pojo.vo.AchievementVO">
+        SELECT
+            a.id,
+            a.name,
+            a.description,
+            a.icon,
+            IF(ua.id IS NOT NULL, TRUE, FALSE) AS unlocked,
+            DATE(ua.unlocked_at) AS unlocked_date
+        FROM achievements a
+        LEFT JOIN user_achievements ua
+            ON a.id = ua.achievement_id AND ua.user_id = #{userId}
+        WHERE a.game_id = #{gameId}
+        ORDER BY a.id
+    </select>
+
+</mapper>

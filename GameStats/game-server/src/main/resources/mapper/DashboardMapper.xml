@@ -1,0 +1,115 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.lxw.gamestats.mapper.DashboardMapper">
+
+    <!-- 统计卡片数据（单条聚合查询，趋势通过子查询计算） -->
+    <select id="getStats" resultType="com.lxw.pojo.vo.DashboardVO">
+        SELECT
+            (SELECT COALESCE(SUM(play_time), 0) FROM user_games WHERE user_id = #{userId}) AS totalPlayTime,
+            (SELECT COUNT(*) FROM user_games WHERE user_id = #{userId}) AS totalGames,
+            (SELECT COUNT(DISTINCT DATE(start_time)) FROM play_records WHERE user_id = #{userId}) AS playDays,
+            (SELECT COUNT(*) FROM user_achievements WHERE user_id = #{userId}) AS achievements,
+            (SELECT COUNT(*)
+               FROM achievements a
+               JOIN user_games ug ON a.game_id = ug.game_id
+              WHERE ug.user_id = #{userId}) AS totalAchievements,
+            (SELECT COUNT(*) FROM user_games WHERE user_id = #{userId} AND status = '已完成') AS completedGames,
+            (SELECT CASE
+                        WHEN t.prev = 0 AND t.curr = 0 THEN 0
+                        WHEN t.prev = 0 THEN 100
+                        ELSE ROUND((t.curr - t.prev) * 100 / t.prev, 1)
+                    END
+               FROM (
+                        SELECT
+                            (SELECT COALESCE(SUM(duration), 0) FROM play_records
+                              WHERE user_id = #{userId}
+                                AND start_time &gt;= DATE_SUB(CURDATE(), INTERVAL 30 DAY)) AS curr,
+                            (SELECT COALESCE(SUM(duration), 0) FROM play_records
+                              WHERE user_id = #{userId}
+                                AND start_time &gt;= DATE_SUB(CURDATE(), INTERVAL 60 DAY)
+                                AND start_time &lt;  DATE_SUB(CURDATE(), INTERVAL 30 DAY)) AS prev
+                    ) t) AS playTimeTrend,
+            (SELECT CASE
+                        WHEN t2.total = 0 THEN 0
+                        ELSE ROUND(t2.recent * 100 / t2.total, 1)
+                    END
+               FROM (
+                        SELECT
+                            (SELECT COUNT(*) FROM user_games WHERE user_id = #{userId}) AS total,
+                            (SELECT COUNT(*) FROM user_games
+                              WHERE user_id = #{userId}
+                                AND created_at &gt;= DATE_SUB(CURDATE(), INTERVAL 30 DAY)) AS recent
+                    ) t2) AS gamesTrend
+    </select>
+
+    <!-- 近期游戏排行：all 按累计时长，week/month 按 play_records 时间窗聚合 -->
+    <select id="listRecentGames" resultType="com.lxw.pojo.vo.GameVO">
+        SELECT g.id,
+               g.name,
+               g.cover,
+               ranked.play_time AS playTime
+        FROM (
+            <choose>
+                <when test="period == null or period == 'all'">
+                    SELECT game_id, play_time
+                    FROM user_games
+                    WHERE user_id = #{userId}
+                </when>
+                <otherwise>
+                    SELECT game_id, SUM(duration) AS play_time
+                    FROM play_records
+                    WHERE user_id = #{userId}
+                    <choose>
+                        <when test="period == 'week'">
+                            AND start_time &gt;= DATE_SUB(CURDATE(), INTERVAL 7 DAY)
+                        </when>
+                        <when test="period == 'month'">
+                            AND start_time &gt;= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
+                        </when>
+                    </choose>
+                    GROUP BY game_id
+                </otherwise>
+            </choose>
+        ) ranked
+        JOIN games g ON ranked.game_id = g.id
+        ORDER BY ranked.play_time DESC
+        LIMIT #{limit}
+    </select>
+
+    <!-- 游玩时长趋势（按日聚合，最近 N 天） -->
+    <select id="listPlayTrend" resultType="com.lxw.pojo.vo.DailyPlayVO">
+        SELECT DATE_FORMAT(start_time, '%Y-%m-%d') AS date,
+               SUM(duration) AS minutes
+        FROM play_records
+        WHERE user_id = #{userId}
+          AND start_time &gt;= DATE_SUB(CURDATE(), INTERVAL #{days} DAY)
+        GROUP BY DATE_FORMAT(start_time, '%Y-%m-%d')
+        ORDER BY date
+    </select>
+
+    <!-- 游戏类型分布（按用户游戏库时长占比 + 小时数） -->
+    <select id="listGenreDistribution" resultType="com.lxw.pojo.vo.GenreDistributionVO">
+        SELECT gg.name AS name,
+               ROUND(SUM(ug.play_time) * 100 /
+                   (SELECT SUM(play_time) FROM user_games WHERE user_id = #{userId}), 2) AS percent,
+               ROUND(SUM(ug.play_time) / 60.0, 1) AS hours
+        FROM user_games ug
+        JOIN game_genre_relations gr ON ug.game_id = gr.game_id
+        JOIN game_genres gg ON gr.genre_id = gg.id
+        WHERE ug.user_id = #{userId}
+        GROUP BY gg.name
+        ORDER BY percent DESC
+    </select>
+
+    <!-- 游玩热力图（指定年份按日聚合） -->
+    <select id="listHeatmap" resultType="com.lxw.pojo.vo.DailyPlayVO">
+        SELECT DATE_FORMAT(start_time, '%Y-%m-%d') AS date,
+               SUM(duration) AS minutes
+        FROM play_records
+        WHERE user_id = #{userId}
+          AND YEAR(start_time) = #{year}
+        GROUP BY DATE_FORMAT(start_time, '%Y-%m-%d')
+        ORDER BY date
+    </select>
+
+</mapper>
