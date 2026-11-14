@@ -1,4 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router'
+import { ElMessage } from 'element-plus'
 import { useUserStore } from '@/store/user'
 
 const routes = [
@@ -66,15 +67,27 @@ const router = createRouter({
 
 router.beforeEach((to, from, next) => {
   const userStore = useUserStore()
+  // 可解析、未过期、且有 30s 余量才算登录
+  const loggedIn = userStore.isTokenValid()
 
-  // 需要登录但未登录 → 强制跳转登录页
-  if (to.meta.requiresAuth && !userStore.isLoggedIn) {
+  // 需要登录但未登录/已过期 → 清态后回登录页并保留 redirect
+  if (to.meta.requiresAuth && !loggedIn) {
+    const hadToken = !!userStore.token
+    // token 能解析出 exp 且已过期才提示"登录已过期"；
+    // 无 token 或 token 无法解析（如手写 'abc'）静默跳转，避免误导提示
+    const expired = userStore.tokenExpiresAt !== null && userStore.tokenExpiresAt <= Date.now()
+    if (hadToken) {
+      userStore.logout()
+    }
+    if (expired) {
+      ElMessage.warning('登录已过期，请重新登录')
+    }
     next({ path: '/login', query: { redirect: to.fullPath } })
     return
   }
 
-  // 已登录用户访问登录页 → 跳转到 dashboard
-  if (to.path === '/login' && userStore.isLoggedIn) {
+  // 已登录（token 有效）访问登录页 → 跳转到 dashboard
+  if (to.path === '/login' && loggedIn) {
     next('/dashboard')
     return
   }

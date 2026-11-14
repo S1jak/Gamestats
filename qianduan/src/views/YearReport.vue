@@ -20,7 +20,7 @@
       </div>
     </div>
     
-    <div class="report-poster" ref="posterRef">
+    <div class="report-poster">
       <div class="poster-bg">
         <div class="poster-gradient"></div>
       </div>
@@ -98,15 +98,29 @@
     </div>
     
     <div class="report-actions">
-      <el-button type="primary" size="large" @click="downloadPoster">
+      <el-button type="primary" size="large" :loading="exporting" :disabled="exporting" @click="downloadPoster">
         <el-icon><Download /></el-icon>
         保存海报
       </el-button>
-      <el-button size="large" @click="shareToDiscord">
+      <el-button size="large" :loading="savingShare" :disabled="savingShare" @click="saveShareRecord">
+        <el-icon><Collection /></el-icon>
+        保存为分享记录
+      </el-button>
+      <el-button size="large" @click="copyShareText">
+        <el-icon><CopyDocument /></el-icon>
+        复制分享文案
+      </el-button>
+      <el-button v-if="canSystemShare" size="large" @click="shareNatively">
         <el-icon><Share /></el-icon>
-        分享到 Discord
+        系统分享
       </el-button>
     </div>
+    <p v-if="shareSaved" class="share-saved-tip">
+      已保存到分享记录，<router-link to="/social">去社交中心查看</router-link>
+    </p>
+    <p class="report-actions-tip">
+      海报导出为 1080×1920 PNG 图片；"保存为分享记录"仅同步到社交中心，两者互不影响。导出失败时可使用浏览器截图保存
+    </p>
     
     <div class="report-details">
       <div class="detail-section">
@@ -117,13 +131,27 @@
       <div class="detail-section">
         <h3>月度游戏排行</h3>
         <div class="monthly-ranking">
-          <div v-for="(month, index) in monthlyData" :key="month.month" class="month-item">
+          <div v-for="month in monthlyData" :key="month.month" class="month-item">
             <span class="month-name">{{ month.month }}月</span>
-            <div class="month-games" v-if="month.topGames && month.topGames.length">
-              <img v-for="game in month.topGames" :key="game.id" :src="game.cover" :alt="game.name" :title="game.name" />
+            <div class="month-games" v-if="month.topGames.length">
+              <div
+                v-for="game in month.topGames"
+                :key="game.id"
+                class="month-game"
+                :title="game.name"
+              >
+                <img
+                  v-if="game.cover && !isCoverFailed(month, game)"
+                  :src="game.cover"
+                  :alt="game.name"
+                  @error="markCoverFailed(month, game)"
+                />
+                <div v-else class="month-cover-placeholder">{{ (game.name || '?').charAt(0) }}</div>
+                <span class="month-game-hours">{{ formatDecimal(game.hours, preferencesStore.state.showDecimal) }}h</span>
+              </div>
             </div>
-            <div class="month-games" v-else></div>
-            <span class="month-hours">{{ month.hours }}h</span>
+            <div class="month-games month-games-empty" v-else>本月无记录</div>
+            <span class="month-hours">{{ formatHours(month.hours) }}h</span>
           </div>
         </div>
       </div>
@@ -152,9 +180,12 @@ import * as echarts from 'echarts'
 import { ElMessage } from 'element-plus'
 import api from '@/utils/api'
 import { useUserStore } from '@/store/user'
+import { usePreferencesStore } from '@/store/preferences'
+import { formatDecimal } from '@/utils/date'
+import { exportYearReportPoster, downloadBlobUrl } from '@/utils/poster'
 
 const userStore = useUserStore()
-const posterRef = ref(null)
+const preferencesStore = usePreferencesStore()
 const trendChartRef = ref(null)
 
 const currentYear = new Date().getFullYear()
@@ -185,7 +216,76 @@ const hasSnapshot = computed(() =>
 // 生成/刷新快照进行中，防止重复提交
 const generating = ref(false)
 
-const monthlyData = computed(() => reportData.value.monthlyTrend || [])
+// 海报导出进行中，防止重复点击产生多个下载
+const exporting = ref(false)
+
+// 分享文案与系统分享能力（navigator.share 不存在时不渲染按钮）
+const shareText = computed(() => {
+  const hours = Number(reportData.value.totalHours) || 0
+  const games = Number(reportData.value.totalGames) || 0
+  return `${selectedYear.value} 年度游戏总结 · ${hours} 小时 · ${games} 款游戏`
+})
+const canSystemShare = typeof navigator !== 'undefined' && typeof navigator.share === 'function'
+
+// 保存为分享记录（POST /api/social/shares），失败不谎报成功
+const savingShare = ref(false)
+const shareSaved = ref(false)
+
+function resetShareState() {
+  shareSaved.value = false
+}
+
+async function saveShareRecord() {
+  if (savingShare.value) return
+  savingShare.value = true
+  try {
+    await api.post('/social/shares', {
+      type: 'year_report',
+      refId: selectedYear.value,
+      title: `${selectedYear.value} 年度报告`,
+      summary: `${reportData.value.totalHours ?? 0} 小时 · ${reportData.value.totalGames ?? 0} 款游戏`,
+      visibility: 'friends'
+    })
+    shareSaved.value = true
+    ElMessage.success('已保存到分享记录')
+  } catch (e) {
+    // 错误 message 由 api.js 统一提示
+  } finally {
+    savingShare.value = false
+  }
+}
+
+// 月度排行：topGames 已由后端按小时降序返回（≤3 项），空月为空数组
+const monthlyData = computed(() =>
+  (reportData.value.monthlyTrend || []).map((item) => ({
+    month: item.month,
+    hours: item.hours ?? 0,
+    topGames: (item.topGames || []).map((game) => ({
+      id: game.id,
+      name: game.name || '',
+      cover: game.cover || '',
+      hours: game.hours ?? 0
+    }))
+  }))
+)
+
+// 封面加载失败记录：以"月份-游戏id"为键，避免同一游戏跨月串味
+const failedCovers = ref({})
+
+function isCoverFailed(month, game) {
+  return !!failedCovers.value[`${month.month}-${game.id}`]
+}
+
+function markCoverFailed(month, game) {
+  failedCovers.value[`${month.month}-${game.id}`] = true
+}
+
+// 小时保留 1 位小数；异常值兜底为 0.0，不渲染 NaN/undefined
+function formatHours(value) {
+  const num = Number(value)
+  return Number.isFinite(num) ? num.toFixed(1) : '0.0'
+}
+
 const favoriteGame = computed(() => reportData.value.favoriteGame || null)
 const reportTags = computed(() => reportData.value.tags || [])
 const reportGenres = computed(() => reportData.value.genres || [])
@@ -203,6 +303,8 @@ let trendChart = null
 // 统一的数据覆盖入口：GET 与生成接口都走这里，保证字段兜底一致
 function applyReportData(data) {
   const source = data || {}
+  // 切换年份后重新尝试加载封面，避免上一轮失败记录残留
+  failedCovers.value = {}
   reportData.value = {
     totalHours: source.totalHours ?? 0,
     totalGames: source.totalGames ?? 0,
@@ -211,7 +313,12 @@ function applyReportData(data) {
     favoriteGame: source.favoriteGame || null,
     tags: source.tags || [],
     genres: source.genres || [],
-    monthlyTrend: source.monthlyTrend || [],
+    // 逐个补 topGames=[]，兼容旧快照/异常响应，保证模板不塌陷
+    monthlyTrend: (Array.isArray(source.monthlyTrend) ? source.monthlyTrend : []).map((item) => ({
+      month: item?.month,
+      hours: item?.hours ?? 0,
+      topGames: Array.isArray(item?.topGames) ? item.topGames : []
+    })),
     snapshotSource: source.snapshotSource === 'snapshot' ? 'snapshot' : 'realtime',
     snapshotGeneratedAt: source.snapshotGeneratedAt || null
   }
@@ -291,15 +398,82 @@ function initTrendChart() {
   trendChart.setOption(option)
 }
 
-function downloadPoster() {
-  ElMessage.success('海报已保存到本地')
+// Canvas 1080×1920 真实导出：失败一律提示"导出失败，可截图保存"，不谎报成功
+async function downloadPoster() {
+  if (exporting.value) return
+  exporting.value = true
+  let objectUrl = ''
+  try {
+    const result = await exportYearReportPoster({
+      year: selectedYear.value,
+      username: userInfo.value.username,
+      avatarUrl: userInfo.value.avatar,
+      totalHours: reportData.value.totalHours,
+      totalGames: reportData.value.totalGames,
+      achievements: reportData.value.achievements,
+      completedGames: reportData.value.completedGames,
+      favoriteGame: reportData.value.favoriteGame,
+      genres: reportData.value.genres,
+      tags: reportData.value.tags,
+      monthlyTrend: reportData.value.monthlyTrend
+    })
+    objectUrl = result.blobUrl
+    downloadBlobUrl(result.blobUrl, result.fileName)
+    ElMessage.success('海报已保存')
+  } catch (e) {
+    ElMessage.error('导出失败，可截图保存')
+  } finally {
+    // 延迟释放，避免部分浏览器下载尚未开始时对象 URL 已被回收
+    if (objectUrl) {
+      setTimeout(() => URL.revokeObjectURL(objectUrl), 10000)
+    }
+    exporting.value = false
+  }
 }
 
-function shareToDiscord() {
-  ElMessage.success('已分享到 Discord')
+// 复制分享文案：优先 Clipboard API，不支持时降级 textarea + execCommand，仍失败则提示手动复制
+async function copyShareText() {
+  const text = shareText.value
+  try {
+    if (typeof navigator !== 'undefined' && navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+      await navigator.clipboard.writeText(text)
+    } else {
+      const textarea = document.createElement('textarea')
+      textarea.value = text
+      textarea.setAttribute('readonly', '')
+      textarea.style.position = 'fixed'
+      textarea.style.top = '0'
+      textarea.style.opacity = '0'
+      document.body.appendChild(textarea)
+      textarea.select()
+      const copied = document.execCommand && document.execCommand('copy')
+      document.body.removeChild(textarea)
+      if (!copied) throw new Error('COPY_FAILED')
+    }
+    ElMessage.success('文案已复制')
+  } catch (e) {
+    ElMessage.warning(`复制失败，请手动复制：${text}`)
+  }
 }
 
-watch(selectedYear, () => fetchReport())
+// 系统分享：仅浏览器支持时可用（按钮条件渲染），取消分享不提示错误
+async function shareNatively() {
+  if (!canSystemShare) return
+  try {
+    await navigator.share({
+      title: shareText.value,
+      text: shareText.value
+    })
+  } catch (e) {
+    if (e && e.name === 'AbortError') return
+    ElMessage.info('系统分享未完成，可先复制分享文案')
+  }
+}
+
+watch(selectedYear, () => {
+  resetShareState()
+  fetchReport()
+})
 
 onMounted(() => fetchReport())
 </script>
@@ -622,6 +796,25 @@ onMounted(() => fetchReport())
   margin-bottom: 48px;
 }
 
+.report-actions-tip {
+  margin: -32px 0 40px;
+  text-align: center;
+  font-size: 12px;
+  color: $text-muted;
+}
+
+.share-saved-tip {
+  margin: -30px 0 26px;
+  text-align: center;
+  font-size: 13px;
+  color: $success-color;
+
+  a {
+    color: $primary-color;
+    margin-left: 4px;
+  }
+}
+
 .report-details {
   display: flex;
   flex-direction: column;
@@ -670,6 +863,7 @@ onMounted(() => fetchReport())
   .month-games {
     flex: 1;
     display: flex;
+    align-items: center;
     gap: 8px;
     
     img {
@@ -677,7 +871,42 @@ onMounted(() => fetchReport())
       height: 36px;
       border-radius: 6px;
       object-fit: cover;
+      flex-shrink: 0;
     }
+  }
+
+  // 无封面时渲染渐变占位块（首字母），不生成 <img src=""> 造成裂图/空请求
+  .month-cover-placeholder {
+    width: 36px;
+    height: 36px;
+    flex-shrink: 0;
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    font-weight: 600;
+    color: $text-secondary;
+    background: linear-gradient(135deg, rgba($primary-color, 0.35), rgba($secondary-color, 0.25));
+  }
+
+  .month-game {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .month-game-hours {
+    font-size: 12px;
+    color: $text-secondary;
+    white-space: nowrap;
+  }
+
+  // 空月占位：保留与原容器一致的高度，避免列表塌陷
+  .month-games-empty {
+    font-size: 13px;
+    color: $text-muted;
+    min-height: 36px;
   }
   
   .month-hours {

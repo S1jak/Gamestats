@@ -34,15 +34,27 @@
       <div class="chart-card large">
         <div class="card-header">
           <h3>游玩时长趋势</h3>
-          <div class="time-tabs">
-            <button 
-              v-for="tab in timeTabs" 
-              :key="tab.value"
-              :class="['tab', { active: activeTimeTab === tab.value }]"
-              @click="activeTimeTab = tab.value"
-            >
-              {{ tab.label }}
-            </button>
+          <div class="chart-controls">
+            <div class="chart-type-tabs">
+              <button
+                v-for="tab in chartTypes"
+                :key="tab.value"
+                :class="['tab', { active: chartType === tab.value }]"
+                @click="chartType = tab.value"
+              >
+                {{ tab.label }}
+              </button>
+            </div>
+            <div class="time-tabs">
+              <button
+                v-for="tab in timeTabs"
+                :key="tab.value"
+                :class="['tab', { active: activeTimeTab === tab.value }]"
+                @click="activeTimeTab = tab.value"
+              >
+                {{ tab.label }}
+              </button>
+            </div>
           </div>
         </div>
         <div ref="trendChartRef" class="chart-container"></div>
@@ -130,9 +142,11 @@ import * as echarts from 'echarts'
 import dayjs from 'dayjs'
 import StatCard from '@/components/StatCard.vue'
 import { useGameStore } from '@/store/game'
+import { usePreferencesStore } from '@/store/preferences'
 import api from '@/utils/api'
 
 const gameStore = useGameStore()
+const preferencesStore = usePreferencesStore()
 
 const trendChartRef = ref(null)
 const genreChartRef = ref(null)
@@ -145,15 +159,38 @@ let heatMapChart = null
 // 类型分布饼图配色
 const GENRE_COLORS = ['#6366f1', '#22d3ee', '#f472b6', '#fbbf24', '#22c55e', '#71717a', '#a78bfa', '#f87171']
 
+// 区间档位：7/30/90 为偏好可选值，365 仅手动切换（R-05）
 const timeTabs = [
+  { label: '7天', value: 7 },
   { label: '30天', value: 30 },
   { label: '90天', value: 90 },
   { label: '365天', value: 365 }
 ]
 
-const activeTimeTab = ref(30)
+// 图表类型：初值来自偏好 defaultChart（line/bar/area）
+const chartTypes = [
+  { label: '折线', value: 'line' },
+  { label: '柱状', value: 'bar' },
+  { label: '面积', value: 'area' }
+]
+
+// 偏好 defaultRange 仅允许 7/30/90；非法或 365 回落 30
+function resolveRange(value) {
+  const num = Number(value)
+  return [7, 30, 90].includes(num) ? num : 30
+}
+
+function resolveChart(value) {
+  return ['line', 'bar', 'area'].includes(value) ? value : 'area'
+}
+
+const activeTimeTab = ref(resolveRange(preferencesStore.state.defaultRange))
+const chartType = ref(resolveChart(preferencesStore.state.defaultChart))
 const heatMapYear = ref(dayjs().year())
 const rankPeriod = ref('week')
+
+// 最近一次趋势数据：图表类型切换时无需重新请求即可重绘
+let lastTrendRecords = []
 
 const years = computed(() => {
   const currentYear = dayjs().year()
@@ -235,11 +272,57 @@ async function loadRecentGames() {
 }
 
 // ---- 图表渲染 ----
+// 按偏好/切换的图表类型生成 series：line（无面积）/ bar / area（折线+面积）
+function buildTrendSeries(data) {
+  const lineGradient = new echarts.graphic.LinearGradient(0, 0, 1, 0, [
+    { offset: 0, color: '#6366f1' },
+    { offset: 1, color: '#22d3ee' }
+  ])
+
+  if (chartType.value === 'bar') {
+    return {
+      data,
+      type: 'bar',
+      barWidth: 12,
+      itemStyle: {
+        borderRadius: [4, 4, 0, 0],
+        color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+          { offset: 0, color: '#6366f1' },
+          { offset: 1, color: 'rgba(34, 211, 238, 0.65)' }
+        ])
+      }
+    }
+  }
+
+  const series = {
+    data,
+    type: 'line',
+    smooth: true,
+    symbol: 'none',
+    lineStyle: {
+      width: 3,
+      color: lineGradient
+    }
+  }
+
+  if (chartType.value === 'area') {
+    series.areaStyle = {
+      color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+        { offset: 0, color: 'rgba(99, 102, 241, 0.3)' },
+        { offset: 1, color: 'rgba(99, 102, 241, 0)' }
+      ])
+    }
+  }
+
+  return series
+}
+
 function renderTrendChart(records) {
+  lastTrendRecords = records || []
   if (!trendChart) return
   // 后端仅返回有记录的日期，前端按时间范围补全缺失日期为 0
   const map = new Map()
-  ;(records || []).forEach(r => map.set(r.date, r.minutes))
+  lastTrendRecords.forEach(r => map.set(r.date, r.minutes))
   const days = activeTimeTab.value
   const dates = []
   const data = []
@@ -276,25 +359,7 @@ function renderTrendChart(records) {
       axisLabel: { color: '#71717a', fontSize: 11 },
       splitLine: { lineStyle: { color: '#27273f' } }
     },
-    series: [{
-      data,
-      type: 'line',
-      smooth: true,
-      symbol: 'none',
-      lineStyle: {
-        width: 3,
-        color: new echarts.graphic.LinearGradient(0, 0, 1, 0, [
-          { offset: 0, color: '#6366f1' },
-          { offset: 1, color: '#22d3ee' }
-        ])
-      },
-      areaStyle: {
-        color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-          { offset: 0, color: 'rgba(99, 102, 241, 0.3)' },
-          { offset: 1, color: 'rgba(99, 102, 241, 0)' }
-        ])
-      }
-    }]
+    series: [buildTrendSeries(data)]
   }
   trendChart.setOption(option, true)
 }
@@ -443,6 +508,15 @@ watch(activeTimeTab, () => loadPlayTrend())
 watch(heatMapYear, () => loadHeatmap())
 watch(rankPeriod, () => loadRecentGames())
 
+// 用户手动切换图表类型只改本地，不回写偏好；偏好变更时同步默认值
+watch(chartType, () => renderTrendChart(lastTrendRecords))
+watch(() => preferencesStore.state.defaultChart, (val) => {
+  chartType.value = resolveChart(val)
+})
+watch(() => preferencesStore.state.defaultRange, (val) => {
+  activeTimeTab.value = resolveRange(val)
+})
+
 onMounted(async () => {
   await nextTick()
   if (trendChartRef.value) trendChart = echarts.init(trendChartRef.value)
@@ -521,11 +595,48 @@ onUnmounted(() => {
     justify-content: space-between;
     align-items: center;
     margin-bottom: 16px;
+    gap: 12px;
+    flex-wrap: wrap;
     
     h3 {
       font-size: 16px;
       font-weight: 600;
       color: $text-primary;
+    }
+  }
+}
+
+.chart-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.chart-type-tabs {
+  display: flex;
+  gap: 4px;
+  background: $bg-darker;
+  padding: 4px;
+  border-radius: $radius-sm;
+  
+  .tab {
+    padding: 6px 10px;
+    border: none;
+    background: transparent;
+    color: $text-secondary;
+    font-size: 12px;
+    cursor: pointer;
+    border-radius: 4px;
+    transition: all $transition-fast;
+    
+    &:hover {
+      color: $text-primary;
+    }
+    
+    &.active {
+      background: $primary-color;
+      color: white;
     }
   }
 }

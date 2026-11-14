@@ -11,7 +11,7 @@
             <span class="badge level">Lv.{{ userInfo.level || 1 }}</span>
             <span class="badge type">{{ userTypeLabel }}</span>
           </div>
-          <p class="join-date">{{ formatDate(userInfo.joinDate) }} 加入</p>
+          <p class="join-date">{{ formatJoinDate(userInfo.joinDate) }} 加入</p>
         </div>
       </div>
       <el-button type="primary" @click="showEditDialog = true">
@@ -43,61 +43,34 @@
       <div class="content-section">
         <h3>绑定账号</h3>
         <div class="linked-accounts">
-          <div class="account-item" :class="{ linked: linkedAccounts.steam }">
-            <div class="account-icon steam">
+          <div
+            v-for="platform in platforms"
+            :key="platform.key"
+            class="account-item"
+            :class="{ linked: !!bindingOf(platform.key)?.bound }"
+          >
+            <div class="account-icon" :class="platform.key">
               <svg viewBox="0 0 24 24" fill="currentColor">
-                <path d="M12 2C6.48 2 2 6.48 2 12c0 4.84 3.44 8.87 8 9.8V15H8v-3h2V9.5C10 7.57 11.57 6 13.5 6H16v3h-2c-.55 0-1 .45-1 1v2h3l-.5 3H13v6.95c5.05-.5 9-4.76 9-9.95 0-5.52-4.48-10-10-10z"/>
+                <path :d="platform.icon"/>
               </svg>
             </div>
             <div class="account-info">
-              <span class="account-name">Steam</span>
-              <span class="account-status">{{ linkedAccounts.steam ? '已绑定' : '未绑定' }}</span>
+              <span class="account-name">{{ platform.name }}</span>
+              <span class="account-status">{{ bindingStatus(platform.key) }}</span>
             </div>
-            <el-button 
-              :type="linkedAccounts.steam ? 'default' : 'primary'" 
+            <el-button
+              :type="bindingOf(platform.key)?.bound ? 'default' : 'primary'"
               size="small"
-              @click="handleLink('steam')"
+              :loading="unbindingPlatform === platform.key"
+              :disabled="bindingsLoading || bindingsError"
+              @click="handleLink(platform.key)"
             >
-              {{ linkedAccounts.steam ? '解绑' : '绑定' }}
+              {{ bindingOf(platform.key)?.bound ? '解绑' : '绑定' }}
             </el-button>
           </div>
-          
-          <div class="account-item" :class="{ linked: linkedAccounts.epic }">
-            <div class="account-icon epic">
-              <svg viewBox="0 0 24 24" fill="currentColor">
-                <path d="M3 3h18v18H3V3zm16 16V5H5v14h14z"/>
-              </svg>
-            </div>
-            <div class="account-info">
-              <span class="account-name">Epic Games</span>
-              <span class="account-status">{{ linkedAccounts.epic ? '已绑定' : '未绑定' }}</span>
-            </div>
-            <el-button 
-              :type="linkedAccounts.epic ? 'default' : 'primary'" 
-              size="small"
-              @click="handleLink('epic')"
-            >
-              {{ linkedAccounts.epic ? '解绑' : '绑定' }}
-            </el-button>
-          </div>
-          
-          <div class="account-item" :class="{ linked: linkedAccounts.discord }">
-            <div class="account-icon discord">
-              <svg viewBox="0 0 24 24" fill="currentColor">
-                <path d="M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028c.462-.63.874-1.295 1.226-1.994a.076.076 0 0 0-.041-.106 13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03z"/>
-              </svg>
-            </div>
-            <div class="account-info">
-              <span class="account-name">Discord</span>
-              <span class="account-status">{{ linkedAccounts.discord ? '已绑定' : '未绑定' }}</span>
-            </div>
-            <el-button 
-              :type="linkedAccounts.discord ? 'default' : 'primary'" 
-              size="small"
-              @click="handleLink('discord')"
-            >
-              {{ linkedAccounts.discord ? '解绑' : '绑定' }}
-            </el-button>
+          <div v-if="bindingsError" class="bindings-error">
+            <span>绑定状态加载失败，请重试</span>
+            <el-button text size="small" @click="loadBindings">重试</el-button>
           </div>
         </div>
       </div>
@@ -187,11 +160,14 @@
 
 <script setup>
 import { ref, computed, watch, onMounted } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { useUserStore } from '@/store/user'
+import { usePreferencesStore } from '@/store/preferences'
+import { formatDate as formatPrefDate } from '@/utils/date'
 import api from '@/utils/api'
 
 const userStore = useUserStore()
+const preferencesStore = usePreferencesStore()
 const showEditDialog = ref(false)
 const newTag = ref('')
 const saving = ref(false)
@@ -208,13 +184,61 @@ const stats = computed(() => userStore.gameStats || {})
 // 自定义标签：来自 users.custom_tags（UserVO.customTags，JSON 反序列化后的 List）
 const customTags = computed(() => userStore.userInfo?.customTags || [])
 
-// 第三方账号绑定状态为前端占位演示
-// （后端暂无 linked_accounts 数据模型与真实 OAuth 绑定流程，handleLink 仅做交互演示）
-const linkedAccounts = ref({
-  steam: true,
-  epic: false,
-  discord: true
-})
+// ===== 第三方账号绑定：真实接口 GET /api/user/bindings =====
+// 固定三平台顺序，未绑定显示"未绑定"，加载失败显示"状态未知"并禁用操作
+const PLATFORM_ORDER = ['steam', 'epic', 'discord']
+
+const platforms = [
+  {
+    key: 'steam',
+    name: 'Steam',
+    icon: 'M12 2C6.48 2 2 6.48 2 12c0 4.84 3.44 8.87 8 9.8V15H8v-3h2V9.5C10 7.57 11.57 6 13.5 6H16v3h-2c-.55 0-1 .45-1 1v2h3l-.5 3H13v6.95c5.05-.5 9-4.76 9-9.95 0-5.52-4.48-10-10-10z'
+  },
+  {
+    key: 'epic',
+    name: 'Epic Games',
+    icon: 'M3 3h18v18H3V3zm16 16V5H5v14h14z'
+  },
+  {
+    key: 'discord',
+    name: 'Discord',
+    icon: 'M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028c.462-.63.874-1.295 1.226-1.994a.076.076 0 0 0-.041-.106 13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03z'
+  }
+]
+
+const bindings = ref([])
+const bindingsLoading = ref(false)
+const bindingsError = ref(false)
+const unbindingPlatform = ref('')
+
+function bindingOf(platform) {
+  return bindings.value.find((item) => item.platform === platform)
+}
+
+function bindingStatus(platform) {
+  if (bindingsError.value) return '状态未知'
+  const item = bindingOf(platform)
+  if (!item) return bindingsLoading.value ? '加载中…' : '状态未知'
+  return item.bound ? `已绑定 · ${item.boundAt || ''}` : '未绑定'
+}
+
+async function loadBindings() {
+  bindingsLoading.value = true
+  bindingsError.value = false
+  try {
+    const list = await api.get('/user/bindings')
+    // 后端固定返回 3 项，前端仍按顺序兜底，避免缺项导致按钮消失
+    bindings.value = PLATFORM_ORDER.map((platform) => {
+      const found = (Array.isArray(list) ? list : []).find((item) => item.platform === platform)
+      return found || { platform, bound: false, boundAt: null, displayName: null }
+    })
+  } catch (e) {
+    bindingsError.value = true
+    bindings.value = []
+  } finally {
+    bindingsLoading.value = false
+  }
+}
 
 // 游戏类型偏好：GET /api/dashboard/genre-distribution（含 hours + percent）
 const genrePreferences = ref([])
@@ -260,23 +284,46 @@ function formatPlayTime(minutes) {
   return `${hours}小时`
 }
 
-// joinDate 兼容字符串与 Jackson 可能的数组格式 [year, month, day]
-function formatDate(date) {
-  if (!date) return ''
-  if (typeof date === 'string') return date
-  if (Array.isArray(date)) {
-    const [y, m, d] = date
-    return `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`
-  }
-  return String(date)
+// joinDate 按偏好 dateFormat 渲染（兼容字符串与 Jackson 数组格式）
+function formatJoinDate(date) {
+  return formatPrefDate(date, preferencesStore.state.dateFormat)
 }
 
-function handleLink(platform) {
-  if (linkedAccounts.value[platform]) {
-    linkedAccounts.value[platform] = false
-    ElMessage.success(`已解绑 ${platform} 账号`)
-  } else {
-    ElMessage.info(`正在跳转到 ${platform} 授权...`)
+// 绑定：PUT 获取后端 400 文案"真实授权暂未开放"（不改本地状态）
+// 解绑：二次确认 → DELETE → 成功后重拉列表，失败保留原状态
+async function handleLink(platform) {
+  if (bindingsError.value || bindingsLoading.value) return
+  const binding = bindingOf(platform)
+  const name = platforms.find((item) => item.key === platform)?.name || platform
+
+  if (!binding?.bound) {
+    try {
+      await api.put(`/user/bindings/${platform}`)
+    } catch (e) {
+      // 400 message（真实授权暂未开放）由 axios 拦截器统一展示
+    }
+    return
+  }
+
+  try {
+    await ElMessageBox.confirm(`确定要解绑 ${name} 吗？`, '解绑确认', {
+      confirmButtonText: '解绑',
+      cancelButtonText: '取消',
+      type: 'warning'
+    })
+  } catch (e) {
+    return
+  }
+
+  unbindingPlatform.value = platform
+  try {
+    await api.delete(`/user/bindings/${platform}`)
+    ElMessage.success('解绑成功')
+    await loadBindings()
+  } catch (e) {
+    // 后端 message（如"该平台尚未绑定"）由拦截器展示，状态保持不变
+  } finally {
+    unbindingPlatform.value = ''
   }
 }
 
@@ -371,6 +418,7 @@ onMounted(() => {
   userStore.fetchUserInfo().catch(() => {})
   userStore.fetchGameStats().catch(() => {})
   loadGenrePreferences()
+  loadBindings()
 })
 </script>
 
@@ -482,6 +530,19 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+
+.bindings-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  border-radius: $radius-md;
+  background: rgba($danger-color, 0.08);
+  border: 1px solid rgba($danger-color, 0.25);
+  font-size: 12px;
+  color: $danger-color;
 }
 
 .account-item {

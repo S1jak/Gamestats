@@ -86,11 +86,7 @@
             clearable
             @keyup.enter="handleSearch"
           />
-          <el-badge :value="notificationCount" :hidden="!notificationCount" class="notification-badge">
-            <el-button text class="icon-btn">
-              <el-icon :size="20"><Bell /></el-icon>
-            </el-button>
-          </el-badge>
+          <NotificationCenter />
         </div>
       </header>
 
@@ -111,21 +107,35 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessageBox } from 'element-plus'
 import { useUserStore } from '@/store/user'
+import { usePreferencesStore } from '@/store/preferences'
+import { useNotificationStore } from '@/store/notification'
 import AccountSettingsDialog from '@/components/AccountSettingsDialog.vue'
 import PreferenceDialog from '@/components/PreferenceDialog.vue'
 import ChangePasswordDialog from '@/components/ChangePasswordDialog.vue'
+import NotificationCenter from '@/components/NotificationCenter.vue'
 
 const route = useRoute()
 const router = useRouter()
 const userStore = useUserStore()
+const preferencesStore = usePreferencesStore()
+const notificationStore = useNotificationStore()
 
-const isCollapsed = ref(false)
+// 侧边栏默认折叠状态来自偏好（服务端真源，缓存兜底首屏）
+const isCollapsed = ref(!!preferencesStore.state.sidebarCollapsed)
 const searchQuery = ref('')
-const notificationCount = ref(0)
+
+// 用户手动折叠只改本地 isCollapsed，不回写偏好；
+// 仅当偏好本身变化（偏好设置保存/服务端覆盖）时才同步默认值
+watch(
+  () => preferencesStore.state.sidebarCollapsed,
+  (val) => {
+    isCollapsed.value = !!val
+  }
+)
 
 // 账号菜单子弹窗显隐
 const accountDialogVisible = ref(false)
@@ -194,6 +204,19 @@ async function handleLogout() {
     // 用户取消，不做任何操作
   }
 }
+
+// 内页挂载：同步服务端偏好（服务端为真源）并启动通知轮询
+onMounted(() => {
+  preferencesStore.load().catch(() => {
+    // 偏好加载失败保留本地缓存，不打断页面
+  })
+  notificationStore.startPolling()
+})
+
+// 离开内页清理轮询定时器与 visibilitychange 监听
+onUnmounted(() => {
+  notificationStore.stopPolling()
+})
 </script>
 
 <style lang="scss" scoped>

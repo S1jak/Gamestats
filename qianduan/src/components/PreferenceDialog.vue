@@ -80,22 +80,25 @@
             <div
               v-for="l in languages"
               :key="l.value"
-              class="lang-card"
+              class="lang-card disabled"
               :class="{ active: prefs.language === l.value }"
-              @click="prefs.language = l.value"
             >
               <div class="lang-flag">{{ l.flag }}</div>
-              <div class="lang-name">{{ l.label }}</div>
+              <div class="lang-name">
+                {{ l.label }}
+                <span class="lang-badge">暂未开放</span>
+              </div>
               <div class="lang-sub">{{ l.sub }}</div>
             </div>
           </div>
+          <p class="section-note">语言切换暂未开放，本轮仅记录 zh-CN。</p>
 
           <div class="setting-row">
             <div class="setting-info">
               <h4>时区</h4>
-              <p>影响数据统计的时间范围</p>
+              <p>本轮仅记录，不影响统计口径</p>
             </div>
-            <el-select v-model="prefs.timezone" style="width: 180px">
+            <el-select v-model="prefs.timezone" style="width: 180px" disabled>
               <el-option label="UTC+8 北京时间" value="Asia/Shanghai" />
               <el-option label="UTC+0 伦敦" value="Europe/London" />
               <el-option label="UTC-5 纽约" value="America/New_York" />
@@ -108,8 +111,8 @@
               <p>列表与图表中日期的显示方式</p>
             </div>
             <el-radio-group v-model="prefs.dateFormat">
-              <el-radio value="YYYY-MM-DD">2026-07-02</el-radio>
-              <el-radio value="MM/DD/YYYY">07/02/2026</el-radio>
+              <el-radio label="YYYY-MM-DD">2026-07-02</el-radio>
+              <el-radio label="MM/DD/YYYY">07/02/2026</el-radio>
             </el-radio-group>
           </div>
         </section>
@@ -125,9 +128,9 @@
               <p>数据中心的默认展示图表类型</p>
             </div>
             <el-radio-group v-model="prefs.defaultChart">
-              <el-radio-button value="line">折线</el-radio-button>
-              <el-radio-button value="bar">柱状</el-radio-button>
-              <el-radio-button value="area">面积</el-radio-button>
+              <el-radio-button label="line">折线</el-radio-button>
+              <el-radio-button label="bar">柱状</el-radio-button>
+              <el-radio-button label="area">面积</el-radio-button>
             </el-radio-group>
           </div>
 
@@ -137,9 +140,9 @@
               <p>趋势图的默认统计区间</p>
             </div>
             <el-radio-group v-model="prefs.defaultRange">
-              <el-radio value="7">近 7 天</el-radio>
-              <el-radio value="30">近 30 天</el-radio>
-              <el-radio value="90">近 90 天</el-radio>
+              <el-radio label="7">近 7 天</el-radio>
+              <el-radio label="30">近 30 天</el-radio>
+              <el-radio label="90">近 90 天</el-radio>
             </el-radio-group>
           </div>
 
@@ -155,7 +158,7 @@
         <!-- 通知 -->
         <section v-show="activeTab === 'notify'">
           <h3 class="section-title">通知与提醒</h3>
-          <p class="section-desc">在应用内与桌面接收的提醒类型。</p>
+          <p class="section-desc">仅保存偏好，提醒功能暂未开放。</p>
 
           <div class="setting-row">
             <div class="setting-info">
@@ -186,8 +189,8 @@
 
     <template #footer>
       <el-button @click="handleClose">取消</el-button>
-      <el-button @click="handleReset">恢复默认</el-button>
-      <el-button type="primary" @click="handleSubmit">保存</el-button>
+      <el-button :loading="resetting" :disabled="saving" @click="handleReset">恢复默认</el-button>
+      <el-button type="primary" :loading="saving" :disabled="resetting" @click="handleSubmit">保存</el-button>
     </template>
   </el-dialog>
 </template>
@@ -196,12 +199,15 @@
 import { reactive, ref, watch, markRaw } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Brush, MagicStick, ChatLineRound, DataLine, Check } from '@element-plus/icons-vue'
+import { usePreferencesStore, DEFAULT_PREFERENCES } from '@/store/preferences'
 
 const props = defineProps({ modelValue: Boolean })
 const emit = defineEmits(['update:modelValue'])
 
-const STORAGE_KEY = 'gs_preferences'
+const preferencesStore = usePreferencesStore()
 const activeTab = ref('appearance')
+const saving = ref(false)
+const resetting = ref(false)
 
 const tabs = [
   { key: 'appearance', label: '外观', icon: markRaw(MagicStick) },
@@ -216,6 +222,7 @@ const themes = [
   { value: 'light', label: '明亮清新', desc: '清爽白底，适合白天', preview: 'linear-gradient(135deg, #ffffff 0%, #e4e4e7 100%)', accent: 'rgba(91,60,196,0.5)' }
 ]
 
+// 语言本轮禁用（C8），保留展示但点击不赋值
 const languages = [
   { value: 'zh-CN', label: '简体中文', sub: '中国大陆', flag: '🇨🇳' },
   { value: 'zh-TW', label: '繁體中文', sub: '台灣 / 香港', flag: '🇭🇰' },
@@ -223,34 +230,26 @@ const languages = [
   { value: 'ja-JP', label: '日本語', sub: '日本', flag: '🇯🇵' }
 ]
 
-const defaults = {
-  theme: 'purple',
-  language: 'zh-CN',
-  motion: true,
-  sidebarCollapsed: false,
-  timezone: 'Asia/Shanghai',
-  dateFormat: 'YYYY-MM-DD',
-  defaultChart: 'line',
-  defaultRange: '30',
-  showDecimal: true,
-  notifyAchievement: true,
-  notifyDaily: true,
-  notifyWeekly: false
-}
+// 默认值与后端 user_preferences DDL / store 保持一致
+const defaults = { ...DEFAULT_PREFERENCES }
 
 const prefs = reactive({ ...defaults })
 
-// 打开时加载持久化偏好，关闭时下次打开再读（不实时回滚）
-watch(() => props.modelValue, (val) => {
+function fillFromStore() {
+  Object.assign(prefs, defaults, preferencesStore.state)
+}
+
+// 打开时：先用缓存（store 已同步初始化）回填，再 GET 覆盖（服务端为真源）
+watch(() => props.modelValue, async (val) => {
   if (val) {
-    try {
-      const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null')
-      if (saved) Object.assign(prefs, saved)
-      else Object.assign(prefs, defaults)
-    } catch {
-      Object.assign(prefs, defaults)
-    }
     activeTab.value = 'appearance'
+    fillFromStore()
+    try {
+      await preferencesStore.load()
+      fillFromStore()
+    } catch (e) {
+      ElMessage.warning('偏好同步失败，已使用本地设置')
+    }
   }
 })
 
@@ -258,15 +257,74 @@ function handleClose() {
   emit('update:modelValue', false)
 }
 
-function handleReset() {
-  Object.assign(prefs, defaults)
-  ElMessage.info('已恢复默认偏好，点击保存生效')
+// 提交前做枚举白名单校验：非法值不发请求（对应 spec 5.7.1 第 5 条）
+function validatePrefs() {
+  if (!['purple', 'dark', 'light'].includes(prefs.theme)) {
+    ElMessage.error('主题设置不合法')
+    return false
+  }
+  if (!['line', 'bar', 'area'].includes(prefs.defaultChart)) {
+    ElMessage.error('默认图表不合法')
+    return false
+  }
+  if (!['7', '30', '90'].includes(String(prefs.defaultRange))) {
+    ElMessage.error('默认时间范围不合法')
+    return false
+  }
+  if (!['YYYY-MM-DD', 'MM/DD/YYYY'].includes(prefs.dateFormat)) {
+    ElMessage.error('日期格式不合法')
+    return false
+  }
+  if (prefs.language !== 'zh-CN') {
+    ElMessage.error('语言暂未开放')
+    return false
+  }
+  return true
 }
 
-function handleSubmit() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(prefs))
-  ElMessage.success('偏好已保存')
-  handleClose()
+async function handleReset() {
+  if (resetting.value) return
+  resetting.value = true
+  try {
+    const state = await preferencesStore.reset()
+    Object.assign(prefs, defaults, state)
+    ElMessage.success('已恢复默认偏好')
+  } catch (e) {
+    ElMessage.error(e?.response?.data?.message || '恢复默认失败')
+  } finally {
+    resetting.value = false
+  }
+}
+
+async function handleSubmit() {
+  if (saving.value) return
+  if (!validatePrefs()) return
+  saving.value = true
+  const payload = {
+    theme: prefs.theme,
+    motion: !!prefs.motion,
+    sidebarCollapsed: !!prefs.sidebarCollapsed,
+    language: 'zh-CN',
+    timezone: prefs.timezone,
+    dateFormat: prefs.dateFormat,
+    defaultChart: prefs.defaultChart,
+    defaultRange: String(prefs.defaultRange),
+    showDecimal: !!prefs.showDecimal,
+    notifyAchievement: !!prefs.notifyAchievement,
+    notifyDaily: !!prefs.notifyDaily,
+    notifyWeekly: !!prefs.notifyWeekly
+  }
+  try {
+    const state = await preferencesStore.save(payload)
+    Object.assign(prefs, defaults, state)
+    ElMessage.success('偏好已保存')
+    handleClose()
+  } catch (e) {
+    // 保存失败：不关闭弹窗、不改本地缓存为服务端值
+    ElMessage.error(e?.response?.data?.message || '偏好保存失败')
+  } finally {
+    saving.value = false
+  }
 }
 </script>
 
@@ -430,20 +488,49 @@ function handleSubmit() {
     background: rgba(91, 60, 196, 0.12);
   }
 
+  // 语言本轮禁用：降低视觉权重并禁止指针反馈
+  &.disabled {
+    cursor: not-allowed;
+    opacity: 0.55;
+
+    &:hover {
+      border-color: rgba(99, 102, 241, 0.15);
+    }
+  }
+
   .lang-flag {
     font-size: 28px;
   }
 
   .lang-name {
+    display: flex;
+    align-items: center;
+    gap: 8px;
     font-size: 14px;
     font-weight: 600;
     color: #ffffff;
+  }
+
+  .lang-badge {
+    padding: 1px 6px;
+    border-radius: 6px;
+    background: rgba(251, 191, 36, 0.15);
+    border: 1px solid rgba(251, 191, 36, 0.35);
+    color: #fbbf24;
+    font-size: 10px;
+    font-weight: 500;
   }
 
   .lang-sub {
     font-size: 12px;
     color: #71717a;
   }
+}
+
+.section-note {
+  margin: -12px 0 18px;
+  font-size: 12px;
+  color: #71717a;
 }
 
 // 设置行

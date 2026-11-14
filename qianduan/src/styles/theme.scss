@@ -1,0 +1,191 @@
+/* ============================================================
+   全局主题变量层（BUG-18 / E1）
+
+   生效方式：store/preferences.js 将主题写到 html[data-theme]
+     purple（默认）/ dark / light
+   优先级：使用 html[data-theme] 前缀，确保覆盖各页面 scoped 样式
+   （scoped 选择器形如 .main-layout[data-v-xxx]，特异性为 0,2,0，
+    html[data-theme] .main-layout 为 0,2,1，可稳定覆盖）
+
+   已知限制：Element Plus 弹窗（teleport 到 body 的 gs-dialog）保持
+   紫蓝暗色主题；图表配色仍为暗色系（design 2.7.3）。
+   ============================================================ */
+
+:root,
+html[data-theme='purple'] {
+  --gs-bg-dark: #0f0f23;
+  --gs-bg-darker: #0a0a1a;
+  --gs-bg-card: #1a1a2e;
+  --gs-bg-card-hover: #252542;
+  --gs-text-primary: #ffffff;
+  --gs-text-secondary: #a1a1aa;
+  --gs-text-muted: #71717a;
+  --gs-border-color: #27273f;
+  --gs-border-light: #3f3f5a;
+  --gs-accent: #6366f1;
+  --gs-accent-2: #22d3ee;
+  --gs-accent-soft: rgba(99, 102, 241, 0.15);
+  --gs-accent-contrast: #ffffff;
+}
+
+html[data-theme='dark'] {
+  --gs-bg-dark: #08080f;
+  --gs-bg-darker: #040409;
+  --gs-bg-card: #111119;
+  --gs-bg-card-hover: #1a1a26;
+  --gs-text-primary: #f4f4f5;
+  --gs-text-secondary: #a1a1aa;
+  --gs-text-muted: #71717a;
+  --gs-border-color: #23232e;
+  --gs-border-light: #34343f;
+  --gs-accent: #818cf8;
+  --gs-accent-2: #22d3ee;
+  --gs-accent-soft: rgba(129, 140, 248, 0.18);
+  --gs-accent-contrast: #ffffff;
+}
+
+html[data-theme='light'] {
+  --gs-bg-dark: #f4f5fb;
+  --gs-bg-darker: #ffffff;
+  --gs-bg-card: #ffffff;
+  --gs-bg-card-hover: #f0f1fa;
+  --gs-text-primary: #1e1b34;
+  --gs-text-secondary: #52525b;
+  --gs-text-muted: #7c7c8a;
+  --gs-border-color: #dfe1ef;
+  --gs-border-light: #c7cade;
+  --gs-accent: #5b3cc4;
+  --gs-accent-2: #3a6ee0;
+  --gs-accent-soft: rgba(91, 60, 196, 0.12);
+  --gs-accent-contrast: #ffffff;
+}
+
+/* 关闭动效（preferences.motion=false） */
+html.no-motion *,
+html.no-motion *::before,
+html.no-motion *::after {
+  transition: none !important;
+  animation: none !important;
+}
+
+/* ===== 背景层：body / 布局 / 侧边栏 / 头部 / 内容区 ===== */
+html[data-theme] body {
+  background-color: var(--gs-bg-dark);
+  color: var(--gs-text-primary);
+}
+
+html[data-theme] .main-layout,
+html[data-theme] .content-wrapper {
+  background: var(--gs-bg-dark);
+}
+
+html[data-theme] .sidebar,
+html[data-theme] .sidebar-footer,
+html[data-theme] .header {
+  background: var(--gs-bg-darker);
+  border-color: var(--gs-border-color);
+}
+
+/* ===== 卡片层 ===== */
+html[data-theme] .card,
+html[data-theme] .chart-card,
+html[data-theme] .stat-item,
+html[data-theme] .content-section,
+html[data-theme] .friend-card,
+html[data-theme] .share-card,
+html[data-theme] .detail-section,
+html[data-theme] .achievements-section,
+html[data-theme] .account-item,
+html[data-theme] .rank-item,
+html[data-theme] .achievement-card,
+html[data-theme] .month-item,
+html[data-theme] .milestone-item {
+  background: var(--gs-bg-card);
+  border-color: var(--gs-border-color);
+}
+
+html[data-theme] .account-item,
+html[data-theme] .rank-item,
+html[data-theme] .achievement-card,
+html[data-theme] .month-item,
+html[data-theme] .milestone-item,
+html[data-theme] .time-tabs,
+html[data-theme] .chart-type-tabs {
+  background: var(--gs-bg-card-hover);
+}
+
+/* ===== 文字层（页面内容区，不含 teleport 弹窗） ===== */
+html[data-theme] .content-wrapper h1,
+html[data-theme] .content-wrapper h2,
+html[data-theme] .content-wrapper h3,
+html[data-theme] .content-wrapper h4,
+html[data-theme] .content-wrapper h5,
+html[data-theme] .page-title,
+html[data-theme] .logo-text,
+html[data-theme] .username,
+html[data-theme] .nav-item:hover {
+  color: var(--gs-text-primary);
+}
+
+html[data-theme] .content-wrapper .stat-label,
+html[data-theme] .content-wrapper .label,
+html[data-theme] .content-wrapper .game-time,
+html[data-theme] .nav-item {
+  color: var(--gs-text-secondary);
+}
+
+html[data-theme] .content-wrapper .stat-value,
+html[data-theme] .content-wrapper .value {
+  color: var(--gs-text-primary);
+}
+
+/* ===== 强调色层 ===== */
+html[data-theme] .nav-item.active {
+  background: var(--gs-accent-soft);
+  color: var(--gs-accent);
+}
+
+html[data-theme] .nav-item.active .el-icon {
+  color: var(--gs-accent);
+}
+
+html[data-theme] .time-tabs .tab.active,
+html[data-theme] .chart-type-tabs .tab.active {
+  background: var(--gs-accent);
+  color: var(--gs-accent-contrast);
+}
+
+html[data-theme] .el-button--primary {
+  --el-button-bg-color: var(--gs-accent);
+  --el-button-border-color: var(--gs-accent);
+  --el-button-hover-bg-color: var(--gs-accent-2);
+  --el-button-hover-border-color: var(--gs-accent-2);
+}
+
+html[data-theme] .el-input__wrapper {
+  background-color: var(--gs-bg-card) !important;
+  box-shadow: 0 0 0 1px var(--gs-border-color) inset !important;
+}
+
+html[data-theme] .el-input__inner {
+  color: var(--gs-text-primary) !important;
+}
+
+/* light 主题下的细边框补充（scoped 写法特异性更高，加 !important 保证可观测） */
+html[data-theme='light'] .main-layout {
+  background: var(--gs-bg-dark) !important;
+}
+
+html[data-theme='light'] .sidebar,
+html[data-theme='light'] .sidebar-footer,
+html[data-theme='light'] .header {
+  background: var(--gs-bg-darker) !important;
+  border-color: var(--gs-border-color) !important;
+}
+
+html[data-theme='light'] .content-wrapper .page-header h2,
+html[data-theme='light'] .content-wrapper h1,
+html[data-theme='light'] .content-wrapper h2,
+html[data-theme='light'] .content-wrapper h3 {
+  color: var(--gs-text-primary) !important;
+}
